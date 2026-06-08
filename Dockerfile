@@ -12,10 +12,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.5.30 /uv /usr/local/bin/uv
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 RUN uv sync --no-dev --no-install-project
 
 COPY src ./src
+COPY migrations ./migrations
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app/src"
 

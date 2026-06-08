@@ -1,46 +1,84 @@
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   app:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
     env_file:
       - .env
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     volumes:
       - ./logs:/app/logs
+    logging: *json-logging
 
   scheduler:
     build: .
     command: python -m app.workers.scheduler
+    restart: unless-stopped
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     volumes:
       - ./logs:/app/logs
+    logging: *json-logging
+
+  migrate:
+    build: .
+    command: alembic upgrade head
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *json-logging
 
   postgres:
     image: postgres:16.14-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: life_agent
       POSTGRES_USER: life_agent
-      POSTGRES_PASSWORD: life_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-life_agent}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U life_agent -d life_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *json-logging
 
   redis:
     image: redis:7.4.9-alpine
     command: redis-server --appendonly yes
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *json-logging
 
 volumes:
   postgres_data:
