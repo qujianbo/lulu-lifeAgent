@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+*.pyc
+logs/
+postgres_data/
+redis_data/
+
