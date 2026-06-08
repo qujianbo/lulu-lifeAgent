@@ -8,3 +8,11 @@ logs/
 postgres_data/
 redis_data/
 
+# Local planning docs; keep README.md as the repository-facing document.
+DATABASE_DESIGN.md
+PRD.md
+PROJECT_IMPLEMENTATION_CHECKLIST.md
+TECHNICAL_IMPLEMENTATION.md
+configs/README.md
+migrations/README.md
+scripts/README.md
