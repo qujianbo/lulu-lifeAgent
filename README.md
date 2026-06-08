@@ -17,6 +17,24 @@ curl http://127.0.0.1:8000/healthz
 curl http://127.0.0.1:8000/readyz
 ```
 
+本地后端调试接口：
+
+```bash
+curl http://127.0.0.1:8000/api/local/deepseek/ping
+
+curl -X POST http://127.0.0.1:8000/api/local/chat \
+  -H 'content-type: application/json' \
+  -d '{"message":"明早 8 点提醒我带身份证"}'
+```
+
+如果 `.env` 配置了 `ADMIN_TOKEN`，调试接口需要增加：
+
+```bash
+-H "x-admin-token: $ADMIN_TOKEN"
+```
+
+本机没有 Docker 或数据库时，`/readyz` 里的 `database`、`redis` 可能显示 `failed`；这表示依赖未连通，不影响先调通 DeepSeek 和本地 Agent 接口。
+
 ## Docker Compose
 
 ```bash
@@ -24,6 +42,14 @@ docker compose up --build
 ```
 
 MVP 初期目标是在阿里云轻量应用服务器上用 Docker Compose 部署所有服务。
+
+## 成本口径
+
+MVP 启动成本需要单独计入微信公众号认证费用：300 元/年。云资源费用另算，包括阿里云轻量应用服务器、域名/证书、备份空间，以及后续 DeepSeek API 调用费用。
+
+## 接入顺序
+
+当前优先在本地调通后端接口、DeepSeek 调用、数据库迁移和核心业务功能。微信公众号服务器回调、菜单、标签和主动推送放到后续联调阶段接入。
 
 ## 镜像版本策略
 

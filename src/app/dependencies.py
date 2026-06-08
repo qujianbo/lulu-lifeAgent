@@ -21,6 +21,9 @@ async def ping_database(settings: Settings | None = None) -> bool | None:
         async with engine.connect() as conn:
             await conn.exec_driver_sql("select 1")
         return True
+    except Exception:
+        # Readiness should report dependency failure instead of crashing the endpoint.
+        return False
     finally:
         await engine.dispose()
 
@@ -44,6 +47,8 @@ async def ping_redis(settings: Settings | None = None) -> bool | None:
     client = Redis.from_url(settings.redis_url, decode_responses=True)
     try:
         return bool(await client.ping())
+    except Exception:
+        # Redis may be absent in local debug mode; expose it as failed in readyz.
+        return False
     finally:
         await client.aclose()
-

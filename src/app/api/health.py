@@ -1,9 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.dependencies import ping_database, ping_redis
 
 router = APIRouter(tags=["health"])
+SETTINGS_DEPENDENCY = Depends(get_settings)
 
 
 def _check_status(value: bool | None) -> str:
@@ -15,14 +16,12 @@ def _check_status(value: bool | None) -> str:
 
 
 @router.get("/healthz")
-async def healthz() -> dict[str, str]:
-    settings = get_settings()
+async def healthz(settings: Settings = SETTINGS_DEPENDENCY) -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name, "environment": settings.app_env}
 
 
 @router.get("/readyz")
-async def readyz() -> dict[str, object]:
-    settings = get_settings()
+async def readyz(settings: Settings = SETTINGS_DEPENDENCY) -> dict[str, object]:
     database = await ping_database(settings)
     redis = await ping_redis(settings)
     deepseek = "configured" if settings.deepseek_api_key else "not_configured"
