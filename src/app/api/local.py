@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -29,6 +29,7 @@ class LocalChatResponse(BaseModel):
     model: str
     provider: str
     latency_ms: int
+    tool_result: dict[str, Any] | None = None
 
 
 async def require_admin_token(
@@ -89,4 +90,5 @@ async def local_chat(
         model=result.model,
         provider=result.provider,
         latency_ms=result.latency_ms,
+        tool_result=result.tool_result,
     )

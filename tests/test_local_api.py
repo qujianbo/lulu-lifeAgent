@@ -51,7 +51,9 @@ def test_local_chat_returns_agent_response(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["content"] == "后端正常"
-    assert payload["intent"] == "create_reminder_candidate"
+    assert payload["intent"] == "create_reminder"
+    assert payload["tool_result"]["tool"] == "create_reminder"
+    assert payload["tool_result"]["status"] == "dry_run"
 
 
 def test_local_api_requires_admin_token_when_configured(monkeypatch) -> None:

@@ -20,6 +20,8 @@ curl http://127.0.0.1:8000/readyz
 本地后端调试接口：
 
 ```bash
+open http://127.0.0.1:8000/debug/chat
+
 curl http://127.0.0.1:8000/api/local/deepseek/ping
 
 curl -X POST http://127.0.0.1:8000/api/local/chat \
