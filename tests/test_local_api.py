@@ -153,3 +153,14 @@ def test_local_stats_handles_missing_database() -> None:
 
     assert response.status_code == 200
     assert response.json()["users"] == 0
+
+
+def test_local_briefing_preview_handles_missing_sources() -> None:
+    app.dependency_overrides[get_settings] = _settings_without_admin_token
+    client = TestClient(app)
+
+    response = client.get("/api/local/briefing/preview")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "no_sources"

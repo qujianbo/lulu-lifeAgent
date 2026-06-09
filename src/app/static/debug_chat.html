@@ -346,6 +346,8 @@
             <pre id="life-records">[]</pre>
             <button id="refresh-subscriptions" class="secondary" type="button">刷新订阅</button>
             <pre id="subscriptions">[]</pre>
+            <button id="preview-briefing" class="secondary" type="button">资讯预览</button>
+            <pre id="briefing-preview">[]</pre>
             <button id="refresh-message-logs" class="secondary" type="button">刷新日志</button>
             <pre id="message-logs">[]</pre>
             <button id="refresh-reminders" class="secondary" type="button">刷新提醒</button>
@@ -377,12 +379,14 @@
       const memoriesNode = document.querySelector("#memories");
       const lifeRecordsNode = document.querySelector("#life-records");
       const subscriptionsNode = document.querySelector("#subscriptions");
+      const briefingPreviewNode = document.querySelector("#briefing-preview");
       const messageLogsNode = document.querySelector("#message-logs");
       const remindersNode = document.querySelector("#reminders");
       const jobsNode = document.querySelector("#scheduled-jobs");
       const refreshMemoriesButton = document.querySelector("#refresh-memories");
       const refreshLifeRecordsButton = document.querySelector("#refresh-life-records");
       const refreshSubscriptionsButton = document.querySelector("#refresh-subscriptions");
+      const previewBriefingButton = document.querySelector("#preview-briefing");
       const refreshMessageLogsButton = document.querySelector("#refresh-message-logs");
       const refreshRemindersButton = document.querySelector("#refresh-reminders");
       const refreshJobsButton = document.querySelector("#refresh-jobs");
@@ -448,6 +452,7 @@
       refreshMemoriesButton.addEventListener("click", loadMemories);
       refreshLifeRecordsButton.addEventListener("click", loadLifeRecords);
       refreshSubscriptionsButton.addEventListener("click", loadSubscriptions);
+      previewBriefingButton.addEventListener("click", loadBriefingPreview);
       refreshMessageLogsButton.addEventListener("click", loadMessageLogs);
       refreshRemindersButton.addEventListener("click", loadReminders);
       refreshJobsButton.addEventListener("click", loadScheduledJobs);
@@ -541,6 +546,15 @@
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
         messageLogsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+      }
+
+      async function loadBriefingPreview() {
+        const headers = {};
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch("/api/local/briefing/preview", { headers });
+        const payload = await response.json();
+        briefingPreviewNode.textContent = JSON.stringify(payload, null, 2);
       }
 
       async function loadScheduledJobs() {

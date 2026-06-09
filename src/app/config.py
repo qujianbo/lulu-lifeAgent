@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     wechat_encoding_aes_key: str | None = None
 
     admin_token: str | None = Field(default=None, repr=False)
+    briefing_rss_urls: str | None = None
 
 
 @lru_cache

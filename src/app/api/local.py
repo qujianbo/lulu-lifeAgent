@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.repositories import MessageLogRepository, ScheduledJobRepository, UserRepository
 from app.services.briefing import BriefingService
+from app.services.briefing.rss import fetch_rss_articles, split_rss_urls
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
 from app.services.llm.types import LLMMessage
@@ -105,6 +106,12 @@ class LocalMessageLogItem(BaseModel):
     created_at: str
 
 
+class LocalBriefingArticleItem(BaseModel):
+    title: str
+    link: str | None
+    source: str
+
+
 class LocalMemoriesResponse(BaseModel):
     user_id: int | None
     items: list[LocalMemoryItem]
@@ -123,6 +130,12 @@ class LocalSubscriptionsResponse(BaseModel):
 class LocalMessageLogsResponse(BaseModel):
     user_id: int | None
     items: list[LocalMessageLogItem]
+
+
+class LocalBriefingPreviewResponse(BaseModel):
+    status: str
+    source_count: int
+    items: list[LocalBriefingArticleItem]
 
 
 class LocalRemindersResponse(BaseModel):
@@ -458,6 +471,29 @@ async def local_message_logs(
                 created_at=item.created_at.isoformat(),
             )
             for item in logs
+        ],
+    )
+
+
+@router.get("/briefing/preview", response_model=LocalBriefingPreviewResponse)
+async def local_briefing_preview(
+    _: None = ADMIN_DEPENDENCY,
+    settings: Settings = SETTINGS_DEPENDENCY,
+) -> LocalBriefingPreviewResponse:
+    rss_urls = split_rss_urls(settings.briefing_rss_urls)
+    if not rss_urls:
+        return LocalBriefingPreviewResponse(status="no_sources", source_count=0, items=[])
+    articles = await fetch_rss_articles(
+        rss_urls=rss_urls,
+        limit=5,
+        timeout_seconds=settings.llm_timeout_seconds,
+    )
+    return LocalBriefingPreviewResponse(
+        status="success",
+        source_count=len(rss_urls),
+        items=[
+            LocalBriefingArticleItem(title=item.title, link=item.link, source=item.source)
+            for item in articles
         ],
     )
 
