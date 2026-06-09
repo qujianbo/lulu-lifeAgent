@@ -55,6 +55,13 @@ class LocalRemindersResponse(BaseModel):
     items: list[LocalReminderItem]
 
 
+class LocalReminderMutationResponse(BaseModel):
+    status: str
+    message: str
+    user_id: int | None
+    reminder_id: int | None = None
+
+
 async def require_admin_token(
     settings: Settings = SETTINGS_DEPENDENCY,
     x_admin_token: Annotated[str | None, Header()] = None,
@@ -177,6 +184,24 @@ async def local_reminders(
     )
 
 
+@router.post("/reminders/{reminder_id}/complete", response_model=LocalReminderMutationResponse)
+async def local_complete_reminder(
+    reminder_id: int,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalReminderMutationResponse:
+    return await _mutate_reminder(reminder_id=reminder_id, session=session, action="complete")
+
+
+@router.delete("/reminders/{reminder_id}", response_model=LocalReminderMutationResponse)
+async def local_delete_reminder(
+    reminder_id: int,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalReminderMutationResponse:
+    return await _mutate_reminder(reminder_id=reminder_id, session=session, action="delete")
+
+
 @asynccontextmanager
 async def _session_transaction(session: AsyncSession | None) -> AsyncIterator[None]:
     if session is None:
@@ -196,3 +221,43 @@ async def _resolve_debug_user_id(
     # Use one stable local user so the debug UI can create/query reminders immediately.
     user = await UserRepository(session).get_or_create_wechat_user("local-debug-user")
     return user.id
+
+
+async def _mutate_reminder(
+    *,
+    reminder_id: int,
+    session: AsyncSession | None,
+    action: str,
+) -> LocalReminderMutationResponse:
+    if session is None:
+        return LocalReminderMutationResponse(
+            status="database_unavailable",
+            message="数据库不可用。",
+            user_id=None,
+        )
+    async with session.begin():
+        user_id = await _resolve_debug_user_id(session=session, user_id=None)
+        repository = ReminderService(session).repository
+        if action == "complete":
+            reminder = await repository.mark_completed(
+                reminder_id=reminder_id,
+                user_id=user_id or 0,
+            )
+            status = "completed"
+            message = "提醒已完成。"
+        else:
+            reminder = await repository.soft_delete(reminder_id=reminder_id, user_id=user_id or 0)
+            status = "deleted"
+            message = "提醒已删除。"
+    if reminder is None:
+        return LocalReminderMutationResponse(
+            status="not_found",
+            message="提醒不存在或已经处理。",
+            user_id=user_id,
+        )
+    return LocalReminderMutationResponse(
+        status=status,
+        message=message,
+        user_id=user_id,
+        reminder_id=reminder.id,
+    )

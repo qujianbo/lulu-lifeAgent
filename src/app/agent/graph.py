@@ -66,7 +66,13 @@ class LifeAgentGraph:
         return AgentState(intent=infer_intent(state.get("sanitized_message", "")))
 
     def route_after_intent(self, state: AgentState) -> str:
-        if state.get("intent") in {"create_reminder", "query_reminder", "briefing"}:
+        if state.get("intent") in {
+            "create_reminder",
+            "query_reminder",
+            "complete_reminder",
+            "delete_reminder",
+            "briefing",
+        }:
             return "tool"
         return "compose"
 
@@ -99,6 +105,37 @@ class LifeAgentGraph:
                     "tool": "query_reminder",
                     "status": "dry_run",
                     "message": "提醒查询工具将在 M5 接入数据库。",
+                }
+            )
+        if intent == "complete_reminder":
+            user_id = state.get("user_id")
+            if self.reminder_service is not None and user_id is not None:
+                result = await self.reminder_service.complete_from_text(
+                    user_id=user_id,
+                    text=message,
+                )
+                return AgentState(
+                    tool_result=_reminder_mutation_tool_result("complete_reminder", result)
+                )
+            return AgentState(
+                tool_result={
+                    "tool": "complete_reminder",
+                    "status": "dry_run",
+                    "message": "提醒完成工具需要数据库连接。",
+                }
+            )
+        if intent == "delete_reminder":
+            user_id = state.get("user_id")
+            if self.reminder_service is not None and user_id is not None:
+                result = await self.reminder_service.delete_from_text(user_id=user_id, text=message)
+                return AgentState(
+                    tool_result=_reminder_mutation_tool_result("delete_reminder", result)
+                )
+            return AgentState(
+                tool_result={
+                    "tool": "delete_reminder",
+                    "status": "dry_run",
+                    "message": "提醒删除工具需要数据库连接。",
                 }
             )
         if intent == "briefing":
@@ -200,3 +237,28 @@ def _reminder_query_tool_result(reminders) -> dict[str, Any]:
             for item in reminders
         ],
     }
+
+
+def _reminder_mutation_tool_result(tool: str, result) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "tool": tool,
+        "status": result.status,
+        "message": result.message,
+        "needs_confirmation": result.needs_confirmation,
+    }
+    if result.reminder is not None:
+        payload["reminder"] = {
+            "id": result.reminder.id,
+            "title": result.reminder.title,
+            "status": result.reminder.status,
+        }
+    if result.candidates:
+        payload["candidates"] = [
+            {
+                "id": item.id,
+                "title": item.title,
+                "scheduled_at": item.scheduled_at.isoformat() if item.scheduled_at else None,
+            }
+            for item in result.candidates
+        ]
+    return payload

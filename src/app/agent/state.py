@@ -1,6 +1,14 @@
 from typing import Any, Literal, TypedDict
 
-AgentIntent = Literal["general_qa", "create_reminder", "query_reminder", "briefing", "unknown"]
+AgentIntent = Literal[
+    "general_qa",
+    "create_reminder",
+    "query_reminder",
+    "complete_reminder",
+    "delete_reminder",
+    "briefing",
+    "unknown",
+]
 
 
 class AgentState(TypedDict, total=False):
