@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.local_agent import LocalAgentService
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
-from app.repositories import ScheduledJobRepository, UserRepository
+from app.repositories import MessageLogRepository, ScheduledJobRepository, UserRepository
 from app.services.briefing import BriefingService
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
@@ -81,6 +81,20 @@ class LocalSubscriptionItem(BaseModel):
     status: str
 
 
+class LocalMessageLogItem(BaseModel):
+    id: int
+    direction: str
+    message_type: str
+    content_summary: str | None
+    agent_intent: str | None
+    tool_name: str | None
+    tool_status: str | None
+    llm_provider: str | None
+    llm_latency_ms: int | None
+    status: str
+    created_at: str
+
+
 class LocalMemoriesResponse(BaseModel):
     user_id: int | None
     items: list[LocalMemoryItem]
@@ -94,6 +108,11 @@ class LocalLifeRecordsResponse(BaseModel):
 class LocalSubscriptionsResponse(BaseModel):
     user_id: int | None
     items: list[LocalSubscriptionItem]
+
+
+class LocalMessageLogsResponse(BaseModel):
+    user_id: int | None
+    items: list[LocalMessageLogItem]
 
 
 class LocalRemindersResponse(BaseModel):
@@ -218,7 +237,33 @@ async def _chat_with_optional_database(
     try:
         async with _session_transaction(session):
             user_id = await _resolve_debug_user_id(session=session, user_id=payload.user_id)
+            if session is not None:
+                await MessageLogRepository(session).create(
+                    direction="in",
+                    message_type="text",
+                    user_id=user_id,
+                    content=payload.message,
+                    raw_payload={"source": "local_debug"},
+                )
             result = await service.chat(payload.message, user_id=user_id)
+            if session is not None:
+                tool_name, tool_status = _tool_log_fields(result.tool_result)
+                await MessageLogRepository(session).create(
+                    direction="out",
+                    message_type="text",
+                    user_id=user_id,
+                    content=result.content,
+                    agent_intent=result.intent,
+                    tool_name=tool_name,
+                    tool_status=tool_status,
+                    llm_provider=result.provider,
+                    llm_latency_ms=result.latency_ms,
+                    raw_payload={
+                        "model": result.model,
+                        "tool_result": result.tool_result,
+                        "source": "local_debug",
+                    },
+                )
             return user_id, result
     except DeepSeekProviderError:
         raise
@@ -356,6 +401,43 @@ async def local_subscriptions(
                 status=item.status,
             )
             for item in subscriptions
+        ],
+    )
+
+
+@router.get("/message-logs", response_model=LocalMessageLogsResponse)
+async def local_message_logs(
+    user_id: int | None = None,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalMessageLogsResponse:
+    if session is None:
+        return LocalMessageLogsResponse(user_id=None, items=[])
+    try:
+        async with session.begin():
+            resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
+            logs = await MessageLogRepository(session).list_recent(user_id=resolved_user_id)
+    except Exception as exc:
+        # Keep the debug page usable even when local DB is not running.
+        logger.warning("local_message_logs_database_fallback", extra={"_error": str(exc)})
+        return LocalMessageLogsResponse(user_id=user_id, items=[])
+    return LocalMessageLogsResponse(
+        user_id=resolved_user_id,
+        items=[
+            LocalMessageLogItem(
+                id=item.id,
+                direction=item.direction,
+                message_type=item.message_type,
+                content_summary=item.content_summary,
+                agent_intent=item.agent_intent,
+                tool_name=item.tool_name,
+                tool_status=item.tool_status,
+                llm_provider=item.llm_provider,
+                llm_latency_ms=item.llm_latency_ms,
+                status=item.status,
+                created_at=item.created_at.isoformat(),
+            )
+            for item in logs
         ],
     )
 
@@ -551,3 +633,9 @@ async def _mutate_reminder(
         user_id=user_id,
         reminder_id=reminder.id,
     )
+
+
+def _tool_log_fields(tool_result: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    if not tool_result:
+        return None, None
+    return tool_result.get("tool"), tool_result.get("status")

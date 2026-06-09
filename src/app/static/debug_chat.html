@@ -346,6 +346,8 @@
             <pre id="life-records">[]</pre>
             <button id="refresh-subscriptions" class="secondary" type="button">刷新订阅</button>
             <pre id="subscriptions">[]</pre>
+            <button id="refresh-message-logs" class="secondary" type="button">刷新日志</button>
+            <pre id="message-logs">[]</pre>
             <button id="refresh-reminders" class="secondary" type="button">刷新提醒</button>
             <pre id="reminders">[]</pre>
             <div class="action-row">
@@ -375,11 +377,13 @@
       const memoriesNode = document.querySelector("#memories");
       const lifeRecordsNode = document.querySelector("#life-records");
       const subscriptionsNode = document.querySelector("#subscriptions");
+      const messageLogsNode = document.querySelector("#message-logs");
       const remindersNode = document.querySelector("#reminders");
       const jobsNode = document.querySelector("#scheduled-jobs");
       const refreshMemoriesButton = document.querySelector("#refresh-memories");
       const refreshLifeRecordsButton = document.querySelector("#refresh-life-records");
       const refreshSubscriptionsButton = document.querySelector("#refresh-subscriptions");
+      const refreshMessageLogsButton = document.querySelector("#refresh-message-logs");
       const refreshRemindersButton = document.querySelector("#refresh-reminders");
       const refreshJobsButton = document.querySelector("#refresh-jobs");
       const runSchedulerButton = document.querySelector("#run-scheduler");
@@ -427,6 +431,7 @@
           await loadMemories();
           await loadLifeRecords();
           await loadSubscriptions();
+          await loadMessageLogs();
           await loadReminders();
           await loadScheduledJobs();
           statusNode.textContent = "完成";
@@ -443,6 +448,7 @@
       refreshMemoriesButton.addEventListener("click", loadMemories);
       refreshLifeRecordsButton.addEventListener("click", loadLifeRecords);
       refreshSubscriptionsButton.addEventListener("click", loadSubscriptions);
+      refreshMessageLogsButton.addEventListener("click", loadMessageLogs);
       refreshRemindersButton.addEventListener("click", loadReminders);
       refreshJobsButton.addEventListener("click", loadScheduledJobs);
       runSchedulerButton.addEventListener("click", runSchedulerOnce);
@@ -523,6 +529,20 @@
         subscriptionsNode.textContent = JSON.stringify(payload.items || [], null, 2);
       }
 
+      async function loadMessageLogs() {
+        const headers = {};
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch("/api/local/message-logs", { headers });
+        const payload = await response.json();
+        if (!response.ok) {
+          messageLogsNode.textContent = JSON.stringify(payload, null, 2);
+          return;
+        }
+        userIdNode.textContent = payload.user_id || userIdNode.textContent;
+        messageLogsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+      }
+
       async function loadScheduledJobs() {
         const headers = {};
         const token = tokenInput.value.trim();
@@ -576,6 +596,7 @@
       loadMemories();
       loadLifeRecords();
       loadSubscriptions();
+      loadMessageLogs();
       loadReminders();
       loadScheduledJobs();
     </script>
