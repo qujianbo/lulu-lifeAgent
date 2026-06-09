@@ -16,6 +16,24 @@ def infer_intent(message: str) -> AgentIntent:
         return "create_reminder"
     if any(keyword in normalized for keyword in ("忘掉", "删除记忆", "取消记忆", "别记")):
         return "memory_delete"
+    life_record_keywords = (
+        "记账",
+        "花了",
+        "消费",
+        "收入",
+        "体重",
+        "运动",
+        "跑步",
+        "睡了",
+        "喝水",
+        "记录",
+    )
+    if any(keyword in normalized for keyword in life_record_keywords):
+        if any(keyword in normalized for keyword in ("查", "看看", "多少", "最近", "列表", "统计")):
+            return "query_life_record"
+        return "create_life_record"
+    if any(keyword in normalized for keyword in ("今天花", "本周花", "最近花", "消费多少")):
+        return "query_life_record"
     if any(keyword in normalized for keyword in ("记住", "记一下", "以后")):
         if any(keyword in normalized for keyword in ("删除", "取消", "忘掉", "别记")):
             return "memory_delete"

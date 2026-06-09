@@ -11,6 +11,8 @@ from app.agent.local_agent import LocalAgentService
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
 from app.repositories import ScheduledJobRepository, UserRepository
+from app.services.briefing import BriefingService
+from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
 from app.services.llm.types import LLMMessage
 from app.services.memory import MemoryService
@@ -60,9 +62,38 @@ class LocalMemoryItem(BaseModel):
     updated_at: str | None
 
 
+class LocalLifeRecordItem(BaseModel):
+    id: int
+    record_type: str
+    content: str
+    amount: str | None
+    currency: str | None
+    recorded_at: str
+    status: str
+
+
+class LocalSubscriptionItem(BaseModel):
+    id: int
+    subscription_type: str
+    schedule_rule: str
+    preferences: dict[str, Any] | None
+    next_push_at: str | None
+    status: str
+
+
 class LocalMemoriesResponse(BaseModel):
     user_id: int | None
     items: list[LocalMemoryItem]
+
+
+class LocalLifeRecordsResponse(BaseModel):
+    user_id: int | None
+    items: list[LocalLifeRecordItem]
+
+
+class LocalSubscriptionsResponse(BaseModel):
+    user_id: int | None
+    items: list[LocalSubscriptionItem]
 
 
 class LocalRemindersResponse(BaseModel):
@@ -150,10 +181,14 @@ async def local_chat(
 ) -> LocalChatResponse:
     reminder_service = ReminderService(session) if session is not None else None
     memory_service = MemoryService(session) if session is not None else None
+    life_record_service = LifeRecordService(session) if session is not None else None
+    briefing_service = BriefingService(session) if session is not None else None
     service = LocalAgentService(
         DeepSeekProvider(settings),
         reminder_service=reminder_service,
         memory_service=memory_service,
+        life_record_service=life_record_service,
+        briefing_service=briefing_service,
     )
     try:
         user_id, result = await _chat_with_optional_database(
@@ -254,6 +289,73 @@ async def local_memories(
                 updated_at=item.updated_at.isoformat() if item.updated_at else None,
             )
             for item in memories
+        ],
+    )
+
+
+@router.get("/life-records", response_model=LocalLifeRecordsResponse)
+async def local_life_records(
+    user_id: int | None = None,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalLifeRecordsResponse:
+    if session is None:
+        return LocalLifeRecordsResponse(user_id=None, items=[])
+    try:
+        async with session.begin():
+            resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
+            records = await LifeRecordService(session).list_active(user_id=resolved_user_id or 0)
+    except Exception as exc:
+        # Keep the debug page usable even when local DB is not running.
+        logger.warning("local_life_records_database_fallback", extra={"_error": str(exc)})
+        return LocalLifeRecordsResponse(user_id=user_id, items=[])
+    return LocalLifeRecordsResponse(
+        user_id=resolved_user_id,
+        items=[
+            LocalLifeRecordItem(
+                id=item.id,
+                record_type=item.record_type,
+                content=item.content,
+                amount=str(item.amount) if item.amount is not None else None,
+                currency=item.currency,
+                recorded_at=item.recorded_at.isoformat(),
+                status=item.status,
+            )
+            for item in records
+        ],
+    )
+
+
+@router.get("/subscriptions", response_model=LocalSubscriptionsResponse)
+async def local_subscriptions(
+    user_id: int | None = None,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalSubscriptionsResponse:
+    if session is None:
+        return LocalSubscriptionsResponse(user_id=None, items=[])
+    try:
+        async with session.begin():
+            resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
+            subscriptions = await BriefingService(session).list_active(
+                user_id=resolved_user_id or 0
+            )
+    except Exception as exc:
+        # Keep the debug page usable even when local DB is not running.
+        logger.warning("local_subscriptions_database_fallback", extra={"_error": str(exc)})
+        return LocalSubscriptionsResponse(user_id=user_id, items=[])
+    return LocalSubscriptionsResponse(
+        user_id=resolved_user_id,
+        items=[
+            LocalSubscriptionItem(
+                id=item.id,
+                subscription_type=item.subscription_type,
+                schedule_rule=item.schedule_rule,
+                preferences=item.preferences,
+                next_push_at=item.next_push_at.isoformat() if item.next_push_at else None,
+                status=item.status,
+            )
+            for item in subscriptions
         ],
     )
 

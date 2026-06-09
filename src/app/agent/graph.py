@@ -4,6 +4,9 @@ from langgraph.graph import END, StateGraph
 
 from app.agent.intent import infer_intent
 from app.agent.state import AgentState
+from app.services.briefing import BriefingService
+from app.services.life_records import LifeRecordService
+from app.services.life_records.service import infer_record_type_for_query
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMMessage
 from app.services.memory import MemoryService, format_memories_for_prompt
@@ -21,10 +24,14 @@ class LifeAgentGraph:
         *,
         reminder_service: ReminderService | None = None,
         memory_service: MemoryService | None = None,
+        life_record_service: LifeRecordService | None = None,
+        briefing_service: BriefingService | None = None,
     ) -> None:
         self.llm = llm
         self.reminder_service = reminder_service
         self.memory_service = memory_service
+        self.life_record_service = life_record_service
+        self.briefing_service = briefing_service
         self.graph = self._build_graph()
 
     async def ainvoke(self, state: AgentState) -> AgentState:
@@ -81,6 +88,8 @@ class LifeAgentGraph:
             "complete_reminder",
             "delete_reminder",
             "briefing",
+            "create_life_record",
+            "query_life_record",
             "memory_update",
             "memory_query",
             "memory_delete",
@@ -151,11 +160,49 @@ class LifeAgentGraph:
                 }
             )
         if intent == "briefing":
+            user_id = state.get("user_id")
+            if self.briefing_service is not None and user_id is not None:
+                result = await self.briefing_service.handle_from_text(
+                    user_id=user_id,
+                    text=message,
+                    memory_topics=_memory_topics(state),
+                )
+                return AgentState(tool_result=_briefing_tool_result(result))
             return AgentState(
                 tool_result={
                     "tool": "briefing_subscription",
                     "status": "dry_run",
                     "message": "资讯订阅将在每日简报阶段接入。",
+                }
+            )
+        if intent == "create_life_record":
+            user_id = state.get("user_id")
+            if self.life_record_service is not None and user_id is not None:
+                result = await self.life_record_service.create_from_text(
+                    user_id=user_id,
+                    text=message,
+                )
+                return AgentState(tool_result=_life_record_create_tool_result(result))
+            return AgentState(
+                tool_result={
+                    "tool": "create_life_record",
+                    "status": "dry_run",
+                    "message": "生活记录工具需要数据库连接。",
+                }
+            )
+        if intent == "query_life_record":
+            user_id = state.get("user_id")
+            if self.life_record_service is not None and user_id is not None:
+                records = await self.life_record_service.list_active(
+                    user_id=user_id,
+                    record_type=infer_record_type_for_query(message),
+                )
+                return AgentState(tool_result=_life_record_query_tool_result(records))
+            return AgentState(
+                tool_result={
+                    "tool": "query_life_record",
+                    "status": "dry_run",
+                    "message": "生活记录查询工具需要数据库连接。",
                 }
             )
         if intent == "memory_update":
@@ -355,3 +402,71 @@ def _memory_delete_tool_result(result) -> dict[str, Any]:
         "message": result.message,
         "memory": _memory_items([profile])[0] if profile else None,
     }
+
+
+def _life_record_items(records) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": item.id,
+            "record_type": item.record_type,
+            "content": item.content,
+            "amount": str(item.amount) if item.amount is not None else None,
+            "currency": item.currency,
+            "recorded_at": item.recorded_at.isoformat() if item.recorded_at else None,
+            "status": item.status,
+        }
+        for item in records
+    ]
+
+
+def _life_record_create_tool_result(result) -> dict[str, Any]:
+    record = result.record
+    return {
+        "tool": "create_life_record",
+        "status": result.status,
+        "message": result.message,
+        "needs_clarification": result.needs_clarification,
+        "record": _life_record_items([record])[0] if record else None,
+    }
+
+
+def _life_record_query_tool_result(records) -> dict[str, Any]:
+    return {
+        "tool": "query_life_record",
+        "status": "success",
+        "count": len(records),
+        "items": _life_record_items(records),
+    }
+
+
+def _briefing_tool_result(result) -> dict[str, Any]:
+    subscription = result.subscription
+    return {
+        "tool": "briefing_subscription",
+        "status": result.status,
+        "message": result.message,
+        "preview_topics": result.preview_topics or [],
+        "subscription": {
+            "id": subscription.id,
+            "subscription_type": subscription.subscription_type,
+            "schedule_rule": subscription.schedule_rule,
+            "next_push_at": subscription.next_push_at.isoformat()
+            if subscription.next_push_at
+            else None,
+            "preferences": subscription.preferences,
+        }
+        if subscription
+        else None,
+    }
+
+
+def _memory_topics(state: AgentState) -> list[str] | None:
+    context = state.get("context") or {}
+    for item in context.get("memories") or []:
+        if item.get("profile_key") == "briefing.topics":
+            return [
+                topic.strip()
+                for topic in str(item.get("profile_value", "")).split(",")
+                if topic.strip()
+            ]
+    return None

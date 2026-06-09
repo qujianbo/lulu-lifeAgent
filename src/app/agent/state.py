@@ -7,6 +7,8 @@ AgentIntent = Literal[
     "complete_reminder",
     "delete_reminder",
     "briefing",
+    "create_life_record",
+    "query_life_record",
     "memory_update",
     "memory_query",
     "memory_delete",

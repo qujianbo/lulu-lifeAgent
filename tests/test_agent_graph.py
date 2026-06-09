@@ -35,6 +35,37 @@ class FakeMemoryService:
         return Result()
 
 
+class FakeLifeRecordService:
+    async def create_from_text(self, *, user_id: int, text: str):
+        class Result:
+            status = "created"
+            message = "生活记录已保存。"
+            needs_clarification = False
+            record = None
+
+        return Result()
+
+    async def list_active(self, *, user_id: int, record_type: str | None = None, limit: int = 20):
+        return []
+
+
+class FakeBriefingService:
+    async def handle_from_text(
+        self,
+        *,
+        user_id: int,
+        text: str,
+        memory_topics=None,
+    ):
+        class Result:
+            status = "preview"
+            message = "当前先返回资讯偏好预览。"
+            subscription = None
+            preview_topics = ["AI"]
+
+        return Result()
+
+
 async def test_agent_graph_routes_create_reminder() -> None:
     graph = LifeAgentGraph(FakeLLM())
 
@@ -65,6 +96,26 @@ async def test_agent_graph_routes_memory_delete() -> None:
     assert result["intent"] == "memory_delete"
     assert result["tool_result"]["tool"] == "memory_delete"
     assert result["tool_result"]["status"] == "deleted"
+
+
+async def test_agent_graph_routes_life_record_create() -> None:
+    graph = LifeAgentGraph(FakeLLM(), life_record_service=FakeLifeRecordService())
+
+    result = await graph.ainvoke({"raw_message": "记账 午饭花了 35 元", "user_id": 1})
+
+    assert result["intent"] == "create_life_record"
+    assert result["tool_result"]["tool"] == "create_life_record"
+    assert result["tool_result"]["status"] == "created"
+
+
+async def test_agent_graph_routes_briefing() -> None:
+    graph = LifeAgentGraph(FakeLLM(), briefing_service=FakeBriefingService())
+
+    result = await graph.ainvoke({"raw_message": "今天有什么科技新闻", "user_id": 1})
+
+    assert result["intent"] == "briefing"
+    assert result["tool_result"]["tool"] == "briefing_subscription"
+    assert result["tool_result"]["status"] == "preview"
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:

@@ -1,11 +1,11 @@
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ScheduledJob
-from app.repositories import ReminderRepository, ScheduledJobRepository
+from app.repositories import ReminderRepository, ScheduledJobRepository, SubscriptionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class SchedulerService:
         self.worker_id = worker_id
         self.jobs = ScheduledJobRepository(session)
         self.reminders = ReminderRepository(session)
+        self.subscriptions = SubscriptionRepository(session)
 
     async def run_once(self, *, limit: int = 20, now: datetime | None = None) -> SchedulerRunResult:
         # Poll pending jobs and process a bounded batch per tick.
@@ -56,6 +57,8 @@ class SchedulerService:
     async def _process_job(self, *, job: ScheduledJob, now: datetime) -> bool:
         if job.job_type == "reminder_due":
             return await self._process_reminder_due(job=job, now=now)
+        if job.job_type == "briefing_due":
+            return await self._process_briefing_due(job=job, now=now)
         logger.info("scheduled_job_skipped_unknown_type", extra={"job_id": job.id})
         return False
 
@@ -73,5 +76,36 @@ class SchedulerService:
         logger.info(
             "reminder_due_processed",
             extra={"job_id": job.id, "reminder_id": reminder.id, "user_id": reminder.user_id},
+        )
+        return True
+
+    async def _process_briefing_due(self, *, job: ScheduledJob, now: datetime) -> bool:
+        if job.ref_id is None:
+            logger.warning("briefing_job_missing_ref", extra={"job_id": job.id})
+            return False
+
+        subscription = await self.subscriptions.get_by_id(subscription_id=job.ref_id)
+        if (
+            subscription is None
+            or subscription.status != "active"
+            or subscription.deleted_at is not None
+        ):
+            logger.info("briefing_job_skipped_inactive", extra={"job_id": job.id})
+            return False
+
+        next_push_at = (subscription.next_push_at or now) + timedelta(days=1)
+        await self.subscriptions.mark_pushed(
+            subscription_id=subscription.id,
+            next_push_at=next_push_at,
+            now=now,
+        )
+        await self.jobs.create_subscription_job(subscription=subscription, now=now)
+        logger.info(
+            "briefing_due_processed",
+            extra={
+                "job_id": job.id,
+                "subscription_id": subscription.id,
+                "user_id": subscription.user_id,
+            },
         )
         return True

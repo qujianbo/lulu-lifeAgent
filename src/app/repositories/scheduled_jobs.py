@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Reminder, ScheduledJob
+from app.models import Reminder, ScheduledJob, Subscription
 
 
 class ScheduledJobRepository:
@@ -33,6 +33,51 @@ class ScheduledJobRepository:
                 else None,
             },
             next_run_at=reminder.next_trigger_at or reminder.scheduled_at or now,
+            retry_count=0,
+            max_retries=3,
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
+
+    async def create_subscription_job(
+        self,
+        *,
+        subscription: Subscription,
+        now: datetime | None = None,
+    ) -> ScheduledJob:
+        # Enqueue one subscription job; scheduler updates the next cycle after processing.
+        now = now or datetime.now(UTC)
+        existing = await self.get_pending_by_ref(
+            job_type="briefing_due",
+            ref_type="subscription",
+            ref_id=subscription.id,
+        )
+        if existing is not None:
+            existing.next_run_at = subscription.next_push_at or now
+            existing.payload = {
+                "subscription_id": subscription.id,
+                "subscription_type": subscription.subscription_type,
+                "preferences": subscription.preferences,
+            }
+            existing.updated_at = now
+            await self.session.flush()
+            return existing
+        job = ScheduledJob(
+            job_uuid=uuid4(),
+            job_type="briefing_due",
+            user_id=subscription.user_id,
+            ref_type="subscription",
+            ref_id=subscription.id,
+            payload={
+                "subscription_id": subscription.id,
+                "subscription_type": subscription.subscription_type,
+                "preferences": subscription.preferences,
+            },
+            next_run_at=subscription.next_push_at or now,
             retry_count=0,
             max_retries=3,
             status="pending",

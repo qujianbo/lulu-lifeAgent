@@ -320,6 +320,12 @@
             <button type="button" data-prompt="记住我以后资讯更关注 AI 和财经">
               记住我以后资讯更关注 AI 和财经
             </button>
+            <button type="button" data-prompt="记账 午饭花了 35 元">
+              记账 午饭花了 35 元
+            </button>
+            <button type="button" data-prompt="每天早上 8 点订阅 AI 和财经简报">
+              每天早上 8 点订阅 AI 和财经简报
+            </button>
             <button type="button" data-prompt="怎么安排今天的工作？">
               怎么安排今天的工作？
             </button>
@@ -336,6 +342,10 @@
             <pre id="tool-result">null</pre>
             <button id="refresh-memories" class="secondary" type="button">刷新记忆</button>
             <pre id="memories">[]</pre>
+            <button id="refresh-life-records" class="secondary" type="button">刷新记录</button>
+            <pre id="life-records">[]</pre>
+            <button id="refresh-subscriptions" class="secondary" type="button">刷新订阅</button>
+            <pre id="subscriptions">[]</pre>
             <button id="refresh-reminders" class="secondary" type="button">刷新提醒</button>
             <pre id="reminders">[]</pre>
             <div class="action-row">
@@ -363,9 +373,13 @@
       const userIdNode = document.querySelector("#user-id");
       const toolNode = document.querySelector("#tool-result");
       const memoriesNode = document.querySelector("#memories");
+      const lifeRecordsNode = document.querySelector("#life-records");
+      const subscriptionsNode = document.querySelector("#subscriptions");
       const remindersNode = document.querySelector("#reminders");
       const jobsNode = document.querySelector("#scheduled-jobs");
       const refreshMemoriesButton = document.querySelector("#refresh-memories");
+      const refreshLifeRecordsButton = document.querySelector("#refresh-life-records");
+      const refreshSubscriptionsButton = document.querySelector("#refresh-subscriptions");
       const refreshRemindersButton = document.querySelector("#refresh-reminders");
       const refreshJobsButton = document.querySelector("#refresh-jobs");
       const runSchedulerButton = document.querySelector("#run-scheduler");
@@ -411,6 +425,8 @@
           appendMessage("assistant", payload.content || "");
           renderMeta(payload);
           await loadMemories();
+          await loadLifeRecords();
+          await loadSubscriptions();
           await loadReminders();
           await loadScheduledJobs();
           statusNode.textContent = "完成";
@@ -425,6 +441,8 @@
       });
 
       refreshMemoriesButton.addEventListener("click", loadMemories);
+      refreshLifeRecordsButton.addEventListener("click", loadLifeRecords);
+      refreshSubscriptionsButton.addEventListener("click", loadSubscriptions);
       refreshRemindersButton.addEventListener("click", loadReminders);
       refreshJobsButton.addEventListener("click", loadScheduledJobs);
       runSchedulerButton.addEventListener("click", runSchedulerOnce);
@@ -475,6 +493,34 @@
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
         memoriesNode.textContent = JSON.stringify(payload.items || [], null, 2);
+      }
+
+      async function loadLifeRecords() {
+        const headers = {};
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch("/api/local/life-records", { headers });
+        const payload = await response.json();
+        if (!response.ok) {
+          lifeRecordsNode.textContent = JSON.stringify(payload, null, 2);
+          return;
+        }
+        userIdNode.textContent = payload.user_id || userIdNode.textContent;
+        lifeRecordsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+      }
+
+      async function loadSubscriptions() {
+        const headers = {};
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch("/api/local/subscriptions", { headers });
+        const payload = await response.json();
+        if (!response.ok) {
+          subscriptionsNode.textContent = JSON.stringify(payload, null, 2);
+          return;
+        }
+        userIdNode.textContent = payload.user_id || userIdNode.textContent;
+        subscriptionsNode.textContent = JSON.stringify(payload.items || [], null, 2);
       }
 
       async function loadScheduledJobs() {
@@ -528,6 +574,8 @@
 
       appendMessage("assistant", "我在，可以开始验证。");
       loadMemories();
+      loadLifeRecords();
+      loadSubscriptions();
       loadReminders();
       loadScheduledJobs();
     </script>
