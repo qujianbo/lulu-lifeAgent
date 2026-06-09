@@ -5,11 +5,21 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.local_agent import LocalAgentService
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
+from app.models import (
+    LifeRecord,
+    MessageLog,
+    Reminder,
+    ScheduledJob,
+    Subscription,
+    User,
+    UserProfile,
+)
 from app.repositories import MessageLogRepository, ScheduledJobRepository, UserRepository
 from app.services.briefing import BriefingService
 from app.services.life_records import LifeRecordService
@@ -148,6 +158,16 @@ class LocalSchedulerRunResponse(BaseModel):
     succeeded: int
     failed: int
     skipped: int
+
+
+class LocalStatsResponse(BaseModel):
+    users: int
+    reminders_active: int
+    memories_active: int
+    life_records_active: int
+    subscriptions_active: int
+    scheduled_jobs_pending: int
+    message_logs: int
 
 
 async def require_admin_token(
@@ -568,6 +588,52 @@ async def local_scheduler_run_once(
     return LocalSchedulerRunResponse(status="success", **result.__dict__)
 
 
+@router.get("/stats", response_model=LocalStatsResponse)
+async def local_stats(
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalStatsResponse:
+    if session is None:
+        return LocalStatsResponse(
+            users=0,
+            reminders_active=0,
+            memories_active=0,
+            life_records_active=0,
+            subscriptions_active=0,
+            scheduled_jobs_pending=0,
+            message_logs=0,
+        )
+    async with session.begin():
+        return LocalStatsResponse(
+            users=await _count(session, select(func.count()).select_from(User)),
+            reminders_active=await _count(
+                session,
+                select(func.count()).select_from(Reminder).where(Reminder.status == "active"),
+            ),
+            memories_active=await _count(
+                session,
+                select(func.count()).select_from(UserProfile).where(UserProfile.status == "active"),
+            ),
+            life_records_active=await _count(
+                session,
+                select(func.count()).select_from(LifeRecord).where(LifeRecord.status == "active"),
+            ),
+            subscriptions_active=await _count(
+                session,
+                select(func.count())
+                .select_from(Subscription)
+                .where(Subscription.status == "active"),
+            ),
+            scheduled_jobs_pending=await _count(
+                session,
+                select(func.count())
+                .select_from(ScheduledJob)
+                .where(ScheduledJob.status == "pending"),
+            ),
+            message_logs=await _count(session, select(func.count()).select_from(MessageLog)),
+        )
+
+
 @asynccontextmanager
 async def _session_transaction(session: AsyncSession | None) -> AsyncIterator[None]:
     if session is None:
@@ -639,3 +705,8 @@ def _tool_log_fields(tool_result: dict[str, Any] | None) -> tuple[str | None, st
     if not tool_result:
         return None, None
     return tool_result.get("tool"), tool_result.get("status")
+
+
+async def _count(session: AsyncSession, query) -> int:
+    result = await session.execute(query)
+    return int(result.scalar_one())

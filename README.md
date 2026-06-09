@@ -110,6 +110,12 @@ scripts/deploy_server.sh
 scripts/deploy_server.sh --build
 ```
 
+手动备份服务器 PostgreSQL：
+
+```bash
+scripts/backup_postgres.sh
+```
+
 PostgreSQL 和 Redis 只绑定服务器本机 `127.0.0.1`，不要对公网开放。FastAPI 当前暴露 `8000` 端口，正式接入域名时建议放到 Nginx/Caddy 后面。
 
 ## 成本口径

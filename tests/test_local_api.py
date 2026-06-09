@@ -142,3 +142,14 @@ def test_local_message_logs_handles_missing_database() -> None:
 
     assert response.status_code == 200
     assert response.json()["items"] == []
+
+
+def test_local_stats_handles_missing_database() -> None:
+    app.dependency_overrides[get_settings] = _settings_without_admin_token
+    client = TestClient(app)
+
+    response = client.get("/api/local/stats")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["users"] == 0
