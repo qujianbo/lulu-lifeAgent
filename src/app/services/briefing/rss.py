@@ -19,6 +19,7 @@ async def fetch_rss_articles(
 ) -> list[BriefingArticle]:
     # Fetch configured RSS feeds; failures from one source do not block other sources.
     articles: list[BriefingArticle] = []
+    per_source_limit = max(1, limit // max(len(rss_urls), 1) + 1)
     async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
         for url in rss_urls:
             try:
@@ -26,9 +27,10 @@ async def fetch_rss_articles(
                 response.raise_for_status()
             except httpx.HTTPError:
                 continue
-            articles.extend(parse_rss_articles(response.text, source=url))
-            if len(articles) >= limit:
-                break
+            try:
+                articles.extend(parse_rss_articles(response.text, source=url)[:per_source_limit])
+            except ElementTree.ParseError:
+                continue
     return articles[:limit]
 
 

@@ -66,6 +66,7 @@ DEEPSEEK_API_KEY=你的 key
 DEEPSEEK_MODEL=deepseek-v4-pro
 ADMIN_TOKEN=换成强 token
 PUBLIC_BASE_URL=https://你的域名
+BRIEFING_RSS_URLS=https://36kr.com/feed,https://sspai.com/feed,https://www.solidot.org/index.rss,https://feeds.feedburner.com/ruanyifeng,https://www.technologyreview.com/feed/
 ```
 
 启动和迁移：
@@ -86,6 +87,7 @@ curl -H "x-admin-token: $ADMIN_TOKEN" \
   -H 'content-type: application/json' \
   -X POST http://127.0.0.1:8000/api/local/chat \
   -d '{"message":"明早 8 点提醒我带身份证"}'
+curl -H "x-admin-token: $ADMIN_TOKEN" http://127.0.0.1:8000/api/local/briefing/preview
 ```
 
 后续更新代码：
@@ -131,6 +133,23 @@ MVP 启动成本需要单独计入微信公众号认证费用：300 元/年。�
 ## 接入顺序
 
 当前优先在本地调通后端接口、DeepSeek 调用、数据库迁移和核心业务功能。微信公众号服务器回调、菜单、标签和主动推送放到后续联调阶段接入。
+
+## RSS 资讯源
+
+`BRIEFING_RSS_URLS` 使用英文逗号分隔多个 RSS/Atom URL。MVP 建议先覆盖：
+
+- 科技/创业：`https://36kr.com/feed`
+- 数字生活：`https://sspai.com/feed`
+- 开源/安全/科技快讯：`https://www.solidot.org/index.rss`
+- 技术周刊：`https://feeds.feedburner.com/ruanyifeng`
+- 国际科技/AI：`https://www.technologyreview.com/feed/`
+
+可选扩展：
+
+- 36氪文章：`https://36kr.com/feed-article`
+- 36氪快讯/财经：`https://36kr.com/feed-newsflash`
+- Hacker News：`https://hnrss.org/frontpage`
+- Wired：`https://www.wired.com/feed/rss`
 
 ## 镜像版本策略
 
