@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.local_agent import LocalAgentService
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
-from app.repositories import UserRepository
+from app.repositories import ScheduledJobRepository, UserRepository
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
 from app.services.llm.types import LLMMessage
 from app.services.reminders.service import ReminderService
+from app.services.scheduler import SchedulerService
 
 router = APIRouter(prefix="/api/local", tags=["local"])
 logger = logging.getLogger(__name__)
@@ -60,6 +61,29 @@ class LocalReminderMutationResponse(BaseModel):
     message: str
     user_id: int | None
     reminder_id: int | None = None
+
+
+class LocalScheduledJobItem(BaseModel):
+    id: int
+    job_type: str
+    ref_type: str | None
+    ref_id: int | None
+    next_run_at: str
+    status: str
+    retry_count: int
+
+
+class LocalScheduledJobsResponse(BaseModel):
+    user_id: int | None
+    items: list[LocalScheduledJobItem]
+
+
+class LocalSchedulerRunResponse(BaseModel):
+    status: str
+    scanned: int
+    succeeded: int
+    failed: int
+    skipped: int
 
 
 async def require_admin_token(
@@ -202,6 +226,88 @@ async def local_delete_reminder(
     return await _mutate_reminder(reminder_id=reminder_id, session=session, action="delete")
 
 
+@router.post("/reminders/{reminder_id}/trigger-now", response_model=LocalReminderMutationResponse)
+async def local_trigger_reminder_now(
+    reminder_id: int,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalReminderMutationResponse:
+    if session is None:
+        return LocalReminderMutationResponse(
+            status="database_unavailable",
+            message="数据库不可用。",
+            user_id=None,
+        )
+    async with session.begin():
+        user_id = await _resolve_debug_user_id(session=session, user_id=None)
+        reminder = await ReminderService(session).repository.get_active(
+            reminder_id=reminder_id,
+            user_id=user_id or 0,
+        )
+        if reminder is None:
+            return LocalReminderMutationResponse(
+                status="not_found",
+                message="提醒不存在或已经处理。",
+                user_id=user_id,
+            )
+        await ScheduledJobRepository(session).force_due_reminder_job(reminder=reminder)
+    return LocalReminderMutationResponse(
+        status="queued",
+        message="提醒已加入立即触发队列。",
+        user_id=user_id,
+        reminder_id=reminder_id,
+    )
+
+
+@router.get("/scheduled-jobs", response_model=LocalScheduledJobsResponse)
+async def local_scheduled_jobs(
+    user_id: int | None = None,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalScheduledJobsResponse:
+    if session is None:
+        return LocalScheduledJobsResponse(user_id=None, items=[])
+    async with session.begin():
+        resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
+        jobs = await ScheduledJobRepository(session).list_recent(
+            user_id=resolved_user_id,
+            limit=20,
+        )
+    return LocalScheduledJobsResponse(
+        user_id=resolved_user_id,
+        items=[
+            LocalScheduledJobItem(
+                id=item.id,
+                job_type=item.job_type,
+                ref_type=item.ref_type,
+                ref_id=item.ref_id,
+                next_run_at=item.next_run_at.isoformat(),
+                status=item.status,
+                retry_count=item.retry_count,
+            )
+            for item in jobs
+        ],
+    )
+
+
+@router.post("/scheduler/run-once", response_model=LocalSchedulerRunResponse)
+async def local_scheduler_run_once(
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalSchedulerRunResponse:
+    if session is None:
+        return LocalSchedulerRunResponse(
+            status="database_unavailable",
+            scanned=0,
+            succeeded=0,
+            failed=0,
+            skipped=0,
+        )
+    async with session.begin():
+        result = await SchedulerService(session, worker_id="local-debug").run_once()
+    return LocalSchedulerRunResponse(status="success", **result.__dict__)
+
+
 @asynccontextmanager
 async def _session_transaction(session: AsyncSession | None) -> AsyncIterator[None]:
     if session is None:
@@ -249,6 +355,12 @@ async def _mutate_reminder(
             reminder = await repository.soft_delete(reminder_id=reminder_id, user_id=user_id or 0)
             status = "deleted"
             message = "提醒已删除。"
+        if reminder is not None:
+            await ScheduledJobRepository(session).cancel_pending_by_ref(
+                job_type="reminder_due",
+                ref_type="reminder",
+                ref_id=reminder.id,
+            )
     if reminder is None:
         return LocalReminderMutationResponse(
             status="not_found",

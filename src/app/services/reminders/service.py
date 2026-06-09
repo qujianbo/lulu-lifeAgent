@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Reminder
-from app.repositories import ReminderRepository
+from app.repositories import ReminderRepository, ScheduledJobRepository
 from app.services.reminders.parser import DEFAULT_TIMEZONE, parse_reminder_text
 
 
@@ -28,6 +28,7 @@ class ReminderMutationResult:
 class ReminderService:
     def __init__(self, session: AsyncSession) -> None:
         self.repository = ReminderRepository(session)
+        self.scheduled_jobs = ScheduledJobRepository(session)
 
     async def create_from_text(
         self,
@@ -56,6 +57,7 @@ class ReminderService:
                 "source": "local_agent",
             },
         )
+        await self.scheduled_jobs.create_reminder_job(reminder=reminder)
         return ReminderCreateResult(
             status="created",
             message="提醒已创建。",
@@ -77,6 +79,11 @@ class ReminderService:
         if reminder is None:
             return ReminderMutationResult(status="not_found", message="没有找到可完成的提醒。")
         updated = await self.repository.mark_completed(reminder_id=reminder.id, user_id=user_id)
+        await self.scheduled_jobs.cancel_pending_by_ref(
+            job_type="reminder_due",
+            ref_type="reminder",
+            ref_id=reminder.id,
+        )
         return ReminderMutationResult(status="completed", message="提醒已完成。", reminder=updated)
 
     async def delete_from_text(self, *, user_id: int, text: str) -> ReminderMutationResult:
@@ -91,6 +98,11 @@ class ReminderService:
         if reminder is None:
             return ReminderMutationResult(status="not_found", message="没有找到可删除的提醒。")
         updated = await self.repository.soft_delete(reminder_id=reminder.id, user_id=user_id)
+        await self.scheduled_jobs.cancel_pending_by_ref(
+            job_type="reminder_due",
+            ref_type="reminder",
+            ref_id=reminder.id,
+        )
         return ReminderMutationResult(status="deleted", message="提醒已删除。", reminder=updated)
 
     async def _resolve_one_reminder(

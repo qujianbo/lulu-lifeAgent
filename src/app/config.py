@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "INFO"
+    scheduler_poll_seconds: int = 30
 
     public_base_url: HttpUrl | None = None
 
@@ -36,4 +37,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

@@ -81,6 +81,21 @@ class ReminderRepository:
         reminder.updated_at = now
         return reminder
 
+    async def mark_triggered(
+        self,
+        *,
+        reminder_id: int,
+        now: datetime | None = None,
+    ) -> Reminder | None:
+        # Record delivery time while keeping the reminder visible until user handles it.
+        now = now or datetime.now(UTC)
+        reminder = await self.get_by_id(reminder_id=reminder_id)
+        if reminder is None:
+            return None
+        reminder.last_triggered_at = now
+        reminder.updated_at = now
+        return reminder
+
     async def soft_delete(
         self,
         *,
@@ -106,4 +121,8 @@ class ReminderRepository:
                 Reminder.deleted_at.is_(None),
             )
         )
+        return result.scalar_one_or_none()
+
+    async def get_by_id(self, *, reminder_id: int) -> Reminder | None:
+        result = await self.session.execute(select(Reminder).where(Reminder.id == reminder_id))
         return result.scalar_one_or_none()

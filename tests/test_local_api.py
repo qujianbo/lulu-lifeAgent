@@ -17,7 +17,13 @@ async def _fake_chat(*args, **kwargs) -> LLMResponse:
 
 
 def _settings_without_admin_token() -> Settings:
-    return Settings(deepseek_api_key="test-key", deepseek_model="deepseek-test")
+    return Settings(
+        deepseek_api_key="test-key",
+        deepseek_model="deepseek-test",
+        database_url=None,
+        redis_url=None,
+        _env_file=None,
+    )
 
 
 def _settings_with_admin_token() -> Settings:
@@ -25,6 +31,9 @@ def _settings_with_admin_token() -> Settings:
         deepseek_api_key="test-key",
         deepseek_model="deepseek-test",
         admin_token="secret",
+        database_url=None,
+        redis_url=None,
+        _env_file=None,
     )
 
 
@@ -67,3 +76,25 @@ def test_local_api_requires_admin_token_when_configured(monkeypatch) -> None:
 
     assert missing.status_code == 401
     assert ok.status_code == 200
+
+
+def test_local_scheduler_run_once_handles_missing_database() -> None:
+    app.dependency_overrides[get_settings] = _settings_without_admin_token
+    client = TestClient(app)
+
+    response = client.post("/api/local/scheduler/run-once")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "database_unavailable"
+
+
+def test_local_scheduled_jobs_handles_missing_database() -> None:
+    app.dependency_overrides[get_settings] = _settings_without_admin_token
+    client = TestClient(app)
+
+    response = client.get("/api/local/scheduled-jobs")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []

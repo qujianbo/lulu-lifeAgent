@@ -219,6 +219,20 @@
         background: #475467;
       }
 
+      .action-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .action-row button {
+        height: 38px;
+        min-width: 76px;
+        padding: 0 12px;
+        background: #475467;
+      }
+
       .meta {
         display: grid;
         gap: 9px;
@@ -319,6 +333,13 @@
             <pre id="tool-result">null</pre>
             <button id="refresh-reminders" class="secondary" type="button">刷新提醒</button>
             <pre id="reminders">[]</pre>
+            <div class="action-row">
+              <input id="trigger-reminder-id" type="number" min="1" placeholder="提醒 ID" />
+              <button id="trigger-now" type="button">触发</button>
+            </div>
+            <button id="run-scheduler" class="secondary" type="button">执行调度</button>
+            <button id="refresh-jobs" class="secondary" type="button">刷新任务</button>
+            <pre id="scheduled-jobs">[]</pre>
           </div>
         </section>
       </aside>
@@ -337,7 +358,12 @@
       const userIdNode = document.querySelector("#user-id");
       const toolNode = document.querySelector("#tool-result");
       const remindersNode = document.querySelector("#reminders");
+      const jobsNode = document.querySelector("#scheduled-jobs");
       const refreshRemindersButton = document.querySelector("#refresh-reminders");
+      const refreshJobsButton = document.querySelector("#refresh-jobs");
+      const runSchedulerButton = document.querySelector("#run-scheduler");
+      const triggerNowButton = document.querySelector("#trigger-now");
+      const triggerReminderIdInput = document.querySelector("#trigger-reminder-id");
 
       tokenInput.value = localStorage.getItem("life-agent-admin-token") || "";
       tokenInput.addEventListener("input", () => {
@@ -378,6 +404,7 @@
           appendMessage("assistant", payload.content || "");
           renderMeta(payload);
           await loadReminders();
+          await loadScheduledJobs();
           statusNode.textContent = "完成";
           statusNode.classList.remove("error");
         } catch (error) {
@@ -390,6 +417,9 @@
       });
 
       refreshRemindersButton.addEventListener("click", loadReminders);
+      refreshJobsButton.addEventListener("click", loadScheduledJobs);
+      runSchedulerButton.addEventListener("click", runSchedulerOnce);
+      triggerNowButton.addEventListener("click", triggerReminderNow);
 
       function appendMessage(role, text) {
         const item = document.createElement("div");
@@ -424,12 +454,58 @@
         remindersNode.textContent = JSON.stringify(payload.items || [], null, 2);
       }
 
+      async function loadScheduledJobs() {
+        const headers = {};
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch("/api/local/scheduled-jobs", { headers });
+        const payload = await response.json();
+        if (!response.ok) {
+          jobsNode.textContent = JSON.stringify(payload, null, 2);
+          return;
+        }
+        jobsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+      }
+
+      async function runSchedulerOnce() {
+        const payload = await postJson("/api/local/scheduler/run-once", {});
+        statusNode.textContent = `调度 ${payload.succeeded}/${payload.scanned}`;
+        await loadScheduledJobs();
+        await loadReminders();
+      }
+
+      async function triggerReminderNow() {
+        const reminderId = triggerReminderIdInput.value.trim();
+        if (!reminderId) return;
+        await postJson(`/api/local/reminders/${reminderId}/trigger-now`, {});
+        statusNode.textContent = "已入队";
+        await loadScheduledJobs();
+      }
+
+      async function postJson(url, body) {
+        const headers = { "content-type": "application/json" };
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || `HTTP ${response.status}`);
+        }
+        return payload;
+      }
+
       function setLoading(isLoading) {
         sendButton.disabled = isLoading;
         statusNode.textContent = isLoading ? "请求中" : statusNode.textContent;
       }
 
       appendMessage("assistant", "我在，可以开始验证。");
+      loadReminders();
+      loadScheduledJobs();
     </script>
   </body>
 </html>
