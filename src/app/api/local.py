@@ -13,6 +13,7 @@ from app.dependencies import get_database_session
 from app.repositories import ScheduledJobRepository, UserRepository
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
 from app.services.llm.types import LLMMessage
+from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
 from app.services.scheduler import SchedulerService
 
@@ -49,6 +50,19 @@ class LocalReminderItem(BaseModel):
     title: str
     scheduled_at: str | None
     status: str
+
+
+class LocalMemoryItem(BaseModel):
+    id: int
+    profile_key: str
+    profile_value: str
+    status: str
+    updated_at: str | None
+
+
+class LocalMemoriesResponse(BaseModel):
+    user_id: int | None
+    items: list[LocalMemoryItem]
 
 
 class LocalRemindersResponse(BaseModel):
@@ -135,7 +149,12 @@ async def local_chat(
     session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
 ) -> LocalChatResponse:
     reminder_service = ReminderService(session) if session is not None else None
-    service = LocalAgentService(DeepSeekProvider(settings), reminder_service=reminder_service)
+    memory_service = MemoryService(session) if session is not None else None
+    service = LocalAgentService(
+        DeepSeekProvider(settings),
+        reminder_service=reminder_service,
+        memory_service=memory_service,
+    )
     try:
         user_id, result = await _chat_with_optional_database(
             service=service,
@@ -205,6 +224,63 @@ async def local_reminders(
             )
             for item in reminders
         ],
+    )
+
+
+@router.get("/memories", response_model=LocalMemoriesResponse)
+async def local_memories(
+    user_id: int | None = None,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalMemoriesResponse:
+    if session is None:
+        return LocalMemoriesResponse(user_id=None, items=[])
+    try:
+        async with session.begin():
+            resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
+            memories = await MemoryService(session).list_active(user_id=resolved_user_id or 0)
+    except Exception as exc:
+        # Keep the debug page usable even when local DB is not running.
+        logger.warning("local_memories_database_fallback", extra={"_error": str(exc)})
+        return LocalMemoriesResponse(user_id=user_id, items=[])
+    return LocalMemoriesResponse(
+        user_id=resolved_user_id,
+        items=[
+            LocalMemoryItem(
+                id=item.id,
+                profile_key=item.profile_key,
+                profile_value=item.profile_value,
+                status=item.status,
+                updated_at=item.updated_at.isoformat() if item.updated_at else None,
+            )
+            for item in memories
+        ],
+    )
+
+
+@router.delete("/memories/{memory_id}", response_model=LocalReminderMutationResponse)
+async def local_delete_memory(
+    memory_id: int,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalReminderMutationResponse:
+    if session is None:
+        return LocalReminderMutationResponse(
+            status="database_unavailable",
+            message="数据库不可用。",
+            user_id=None,
+        )
+    async with session.begin():
+        user_id = await _resolve_debug_user_id(session=session, user_id=None)
+        result = await MemoryService(session).delete_by_id(
+            user_id=user_id or 0,
+            profile_id=memory_id,
+        )
+    return LocalReminderMutationResponse(
+        status=result.status,
+        message=result.message,
+        user_id=user_id,
+        reminder_id=result.profile.id if result.profile else None,
     )
 
 

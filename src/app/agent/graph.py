@@ -6,6 +6,7 @@ from app.agent.intent import infer_intent
 from app.agent.state import AgentState
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMMessage
+from app.services.memory import MemoryService, format_memories_for_prompt
 from app.services.reminders.service import ReminderService
 
 SYSTEM_PROMPT = """你是露露生活管家 Agent。
@@ -19,9 +20,11 @@ class LifeAgentGraph:
         llm: DeepSeekProvider,
         *,
         reminder_service: ReminderService | None = None,
+        memory_service: MemoryService | None = None,
     ) -> None:
         self.llm = llm
         self.reminder_service = reminder_service
+        self.memory_service = memory_service
         self.graph = self._build_graph()
 
     async def ainvoke(self, state: AgentState) -> AgentState:
@@ -59,8 +62,14 @@ class LifeAgentGraph:
         return AgentState(sanitized_message=message[:2000])
 
     async def context_loader(self, state: AgentState) -> AgentState:
-        # Placeholder for memory, reminders and user profile loading in later stages.
-        return AgentState(context={"memory_loaded": False, "reminders_loaded": False})
+        user_id = state.get("user_id")
+        context: dict[str, Any] = {"memory_loaded": False, "reminders_loaded": False}
+        if self.memory_service is not None and user_id is not None:
+            memories = await self.memory_service.list_active(user_id=user_id, limit=20)
+            context["memory_loaded"] = True
+            context["memories"] = _memory_items(memories)
+            context["memory_prompt"] = format_memories_for_prompt(memories)
+        return AgentState(context=context)
 
     async def intent_router(self, state: AgentState) -> AgentState:
         return AgentState(intent=infer_intent(state.get("sanitized_message", "")))
@@ -72,6 +81,9 @@ class LifeAgentGraph:
             "complete_reminder",
             "delete_reminder",
             "briefing",
+            "memory_update",
+            "memory_query",
+            "memory_delete",
         }:
             return "tool"
         return "compose"
@@ -146,6 +158,42 @@ class LifeAgentGraph:
                     "message": "资讯订阅将在每日简报阶段接入。",
                 }
             )
+        if intent == "memory_update":
+            user_id = state.get("user_id")
+            if self.memory_service is not None and user_id is not None:
+                result = await self.memory_service.save_from_text(user_id=user_id, text=message)
+                return AgentState(tool_result=_memory_save_tool_result(result))
+            return AgentState(
+                tool_result={
+                    "tool": "memory_update",
+                    "status": "dry_run",
+                    "message": "记忆工具需要数据库连接。",
+                }
+            )
+        if intent == "memory_query":
+            user_id = state.get("user_id")
+            if self.memory_service is not None and user_id is not None:
+                memories = await self.memory_service.list_active(user_id=user_id)
+                return AgentState(tool_result=_memory_query_tool_result(memories))
+            return AgentState(
+                tool_result={
+                    "tool": "memory_query",
+                    "status": "dry_run",
+                    "message": "记忆查询工具需要数据库连接。",
+                }
+            )
+        if intent == "memory_delete":
+            user_id = state.get("user_id")
+            if self.memory_service is not None and user_id is not None:
+                result = await self.memory_service.delete_from_text(user_id=user_id, text=message)
+                return AgentState(tool_result=_memory_delete_tool_result(result))
+            return AgentState(
+                tool_result={
+                    "tool": "memory_delete",
+                    "status": "dry_run",
+                    "message": "记忆删除工具需要数据库连接。",
+                }
+            )
         return AgentState(tool_result=None)
 
     async def response_composer(self, state: AgentState) -> AgentState:
@@ -181,10 +229,13 @@ def _build_user_prompt(state: AgentState) -> str:
     intent = state.get("intent", "unknown")
     tool_result = state.get("tool_result")
     slots = state.get("slots") or {}
+    context = state.get("context") or {}
+    memories = context.get("memory_prompt", "无")
     return (
         f"用户消息：{message}\n"
         f"识别意图：{intent}\n"
         f"提取信息：{slots}\n"
+        f"长期记忆：\n{memories}\n"
         f"工具结果：{tool_result}\n"
         "请给用户一个自然、简洁的回复。"
     )
@@ -262,3 +313,45 @@ def _reminder_mutation_tool_result(tool: str, result) -> dict[str, Any]:
             for item in result.candidates
         ]
     return payload
+
+
+def _memory_items(memories) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": item.id,
+            "profile_key": item.profile_key,
+            "profile_value": item.profile_value,
+            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+        }
+        for item in memories
+    ]
+
+
+def _memory_save_tool_result(result) -> dict[str, Any]:
+    profile = result.profile
+    return {
+        "tool": "memory_update",
+        "status": result.status,
+        "message": result.message,
+        "needs_clarification": result.needs_clarification,
+        "memory": _memory_items([profile])[0] if profile else None,
+    }
+
+
+def _memory_query_tool_result(memories) -> dict[str, Any]:
+    return {
+        "tool": "memory_query",
+        "status": "success",
+        "count": len(memories),
+        "items": _memory_items(memories),
+    }
+
+
+def _memory_delete_tool_result(result) -> dict[str, Any]:
+    profile = result.profile
+    return {
+        "tool": "memory_delete",
+        "status": result.status,
+        "message": result.message,
+        "memory": _memory_items([profile])[0] if profile else None,
+    }

@@ -317,6 +317,9 @@
             <button type="button" data-prompt="今天有什么适合关注的科技新闻？">
               今天有什么适合关注的科技新闻？
             </button>
+            <button type="button" data-prompt="记住我以后资讯更关注 AI 和财经">
+              记住我以后资讯更关注 AI 和财经
+            </button>
             <button type="button" data-prompt="怎么安排今天的工作？">
               怎么安排今天的工作？
             </button>
@@ -331,6 +334,8 @@
             <div class="meta-row"><span>Latency</span><span id="latency" class="meta-value">-</span></div>
             <div class="meta-row"><span>User ID</span><span id="user-id" class="meta-value">-</span></div>
             <pre id="tool-result">null</pre>
+            <button id="refresh-memories" class="secondary" type="button">刷新记忆</button>
+            <pre id="memories">[]</pre>
             <button id="refresh-reminders" class="secondary" type="button">刷新提醒</button>
             <pre id="reminders">[]</pre>
             <div class="action-row">
@@ -357,8 +362,10 @@
       const latencyNode = document.querySelector("#latency");
       const userIdNode = document.querySelector("#user-id");
       const toolNode = document.querySelector("#tool-result");
+      const memoriesNode = document.querySelector("#memories");
       const remindersNode = document.querySelector("#reminders");
       const jobsNode = document.querySelector("#scheduled-jobs");
+      const refreshMemoriesButton = document.querySelector("#refresh-memories");
       const refreshRemindersButton = document.querySelector("#refresh-reminders");
       const refreshJobsButton = document.querySelector("#refresh-jobs");
       const runSchedulerButton = document.querySelector("#run-scheduler");
@@ -403,6 +410,7 @@
 
           appendMessage("assistant", payload.content || "");
           renderMeta(payload);
+          await loadMemories();
           await loadReminders();
           await loadScheduledJobs();
           statusNode.textContent = "完成";
@@ -416,6 +424,7 @@
         }
       });
 
+      refreshMemoriesButton.addEventListener("click", loadMemories);
       refreshRemindersButton.addEventListener("click", loadReminders);
       refreshJobsButton.addEventListener("click", loadScheduledJobs);
       runSchedulerButton.addEventListener("click", runSchedulerOnce);
@@ -452,6 +461,20 @@
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
         remindersNode.textContent = JSON.stringify(payload.items || [], null, 2);
+      }
+
+      async function loadMemories() {
+        const headers = {};
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch("/api/local/memories", { headers });
+        const payload = await response.json();
+        if (!response.ok) {
+          memoriesNode.textContent = JSON.stringify(payload, null, 2);
+          return;
+        }
+        userIdNode.textContent = payload.user_id || userIdNode.textContent;
+        memoriesNode.textContent = JSON.stringify(payload.items || [], null, 2);
       }
 
       async function loadScheduledJobs() {
@@ -504,6 +527,7 @@
       }
 
       appendMessage("assistant", "我在，可以开始验证。");
+      loadMemories();
       loadReminders();
       loadScheduledJobs();
     </script>
