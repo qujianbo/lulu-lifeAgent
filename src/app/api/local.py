@@ -1,15 +1,24 @@
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.local_agent import LocalAgentService
 from app.config import Settings, get_settings
+from app.dependencies import get_database_session
+from app.repositories import UserRepository
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
 from app.services.llm.types import LLMMessage
+from app.services.reminders.service import ReminderService
 
 router = APIRouter(prefix="/api/local", tags=["local"])
+logger = logging.getLogger(__name__)
 SETTINGS_DEPENDENCY = Depends(get_settings)
+DATABASE_SESSION_DEPENDENCY = Depends(get_database_session)
 
 
 class DeepSeekPingResponse(BaseModel):
@@ -21,6 +30,7 @@ class DeepSeekPingResponse(BaseModel):
 
 class LocalChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+    user_id: int | None = Field(default=None, gt=0)
 
 
 class LocalChatResponse(BaseModel):
@@ -29,7 +39,20 @@ class LocalChatResponse(BaseModel):
     model: str
     provider: str
     latency_ms: int
+    user_id: int | None = None
     tool_result: dict[str, Any] | None = None
+
+
+class LocalReminderItem(BaseModel):
+    id: int
+    title: str
+    scheduled_at: str | None
+    status: str
+
+
+class LocalRemindersResponse(BaseModel):
+    user_id: int | None
+    items: list[LocalReminderItem]
 
 
 async def require_admin_token(
@@ -78,10 +101,16 @@ async def local_chat(
     payload: LocalChatRequest,
     _: None = ADMIN_DEPENDENCY,
     settings: Settings = SETTINGS_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
 ) -> LocalChatResponse:
-    service = LocalAgentService(DeepSeekProvider(settings))
+    reminder_service = ReminderService(session) if session is not None else None
+    service = LocalAgentService(DeepSeekProvider(settings), reminder_service=reminder_service)
     try:
-        result = await service.chat(payload.message)
+        user_id, result = await _chat_with_optional_database(
+            service=service,
+            session=session,
+            payload=payload,
+        )
     except DeepSeekProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return LocalChatResponse(
@@ -90,5 +119,80 @@ async def local_chat(
         model=result.model,
         provider=result.provider,
         latency_ms=result.latency_ms,
+        user_id=user_id,
         tool_result=result.tool_result,
     )
+
+
+async def _chat_with_optional_database(
+    *,
+    service: LocalAgentService,
+    session: AsyncSession | None,
+    payload: LocalChatRequest,
+):
+    try:
+        async with _session_transaction(session):
+            user_id = await _resolve_debug_user_id(session=session, user_id=payload.user_id)
+            result = await service.chat(payload.message, user_id=user_id)
+            return user_id, result
+    except DeepSeekProviderError:
+        raise
+    except Exception as exc:
+        if session is None:
+            raise
+        # Let local Docker-free environments keep validating Agent behavior without DB.
+        logger.warning("local_chat_database_fallback", extra={"_error": str(exc)})
+        fallback_service = LocalAgentService(service.graph.llm)
+        result = await fallback_service.chat(payload.message, user_id=payload.user_id)
+        return payload.user_id, result
+
+
+@router.get("/reminders", response_model=LocalRemindersResponse)
+async def local_reminders(
+    user_id: int | None = None,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalRemindersResponse:
+    if session is None:
+        return LocalRemindersResponse(user_id=None, items=[])
+    try:
+        async with session.begin():
+            resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
+            reminders = await ReminderService(session).list_active(user_id=resolved_user_id or 0)
+    except Exception as exc:
+        # Keep the debug page usable even when local DB is not running.
+        logger.warning("local_reminders_database_fallback", extra={"_error": str(exc)})
+        return LocalRemindersResponse(user_id=user_id, items=[])
+    return LocalRemindersResponse(
+        user_id=resolved_user_id,
+        items=[
+            LocalReminderItem(
+                id=item.id,
+                title=item.title,
+                scheduled_at=item.scheduled_at.isoformat() if item.scheduled_at else None,
+                status=item.status,
+            )
+            for item in reminders
+        ],
+    )
+
+
+@asynccontextmanager
+async def _session_transaction(session: AsyncSession | None) -> AsyncIterator[None]:
+    if session is None:
+        yield
+        return
+    async with session.begin():
+        yield
+
+
+async def _resolve_debug_user_id(
+    *,
+    session: AsyncSession | None,
+    user_id: int | None,
+) -> int | None:
+    if user_id is not None or session is None:
+        return user_id
+    # Use one stable local user so the debug UI can create/query reminders immediately.
+    user = await UserRepository(session).get_or_create_wechat_user("local-debug-user")
+    return user.id

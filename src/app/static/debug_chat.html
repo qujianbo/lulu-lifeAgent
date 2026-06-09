@@ -212,6 +212,13 @@
         font-weight: 600;
       }
 
+      .secondary {
+        width: 100%;
+        height: 36px;
+        margin-top: 10px;
+        background: #475467;
+      }
+
       .meta {
         display: grid;
         gap: 9px;
@@ -308,7 +315,10 @@
             <div class="meta-row"><span>Intent</span><span id="intent" class="meta-value">-</span></div>
             <div class="meta-row"><span>Model</span><span id="model" class="meta-value">-</span></div>
             <div class="meta-row"><span>Latency</span><span id="latency" class="meta-value">-</span></div>
+            <div class="meta-row"><span>User ID</span><span id="user-id" class="meta-value">-</span></div>
             <pre id="tool-result">null</pre>
+            <button id="refresh-reminders" class="secondary" type="button">刷新提醒</button>
+            <pre id="reminders">[]</pre>
           </div>
         </section>
       </aside>
@@ -324,7 +334,10 @@
       const intentNode = document.querySelector("#intent");
       const modelNode = document.querySelector("#model");
       const latencyNode = document.querySelector("#latency");
+      const userIdNode = document.querySelector("#user-id");
       const toolNode = document.querySelector("#tool-result");
+      const remindersNode = document.querySelector("#reminders");
+      const refreshRemindersButton = document.querySelector("#refresh-reminders");
 
       tokenInput.value = localStorage.getItem("life-agent-admin-token") || "";
       tokenInput.addEventListener("input", () => {
@@ -364,6 +377,7 @@
 
           appendMessage("assistant", payload.content || "");
           renderMeta(payload);
+          await loadReminders();
           statusNode.textContent = "完成";
           statusNode.classList.remove("error");
         } catch (error) {
@@ -374,6 +388,8 @@
           setLoading(false);
         }
       });
+
+      refreshRemindersButton.addEventListener("click", loadReminders);
 
       function appendMessage(role, text) {
         const item = document.createElement("div");
@@ -390,7 +406,22 @@
         intentNode.textContent = payload.intent || "-";
         modelNode.textContent = payload.model || "-";
         latencyNode.textContent = payload.latency_ms ? `${payload.latency_ms} ms` : "-";
+        userIdNode.textContent = payload.user_id || "-";
         toolNode.textContent = JSON.stringify(payload.tool_result, null, 2);
+      }
+
+      async function loadReminders() {
+        const headers = {};
+        const token = tokenInput.value.trim();
+        if (token) headers["x-admin-token"] = token;
+        const response = await fetch("/api/local/reminders", { headers });
+        const payload = await response.json();
+        if (!response.ok) {
+          remindersNode.textContent = JSON.stringify(payload, null, 2);
+          return;
+        }
+        userIdNode.textContent = payload.user_id || userIdNode.textContent;
+        remindersNode.textContent = JSON.stringify(payload.items || [], null, 2);
       }
 
       function setLoading(isLoading) {

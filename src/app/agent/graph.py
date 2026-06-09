@@ -6,6 +6,7 @@ from app.agent.intent import infer_intent
 from app.agent.state import AgentState
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMMessage
+from app.services.reminders.service import ReminderService
 
 SYSTEM_PROMPT = """你是露露生活管家 Agent。
 当前处于后端联调阶段，能力包括日常问答、提醒意图理解和资讯偏好沟通。
@@ -13,8 +14,14 @@ SYSTEM_PROMPT = """你是露露生活管家 Agent。
 
 
 class LifeAgentGraph:
-    def __init__(self, llm: DeepSeekProvider) -> None:
+    def __init__(
+        self,
+        llm: DeepSeekProvider,
+        *,
+        reminder_service: ReminderService | None = None,
+    ) -> None:
         self.llm = llm
+        self.reminder_service = reminder_service
         self.graph = self._build_graph()
 
     async def ainvoke(self, state: AgentState) -> AgentState:
@@ -64,10 +71,16 @@ class LifeAgentGraph:
         return "compose"
 
     async def tool_executor(self, state: AgentState) -> AgentState:
-        # Tools are dry-run in M4; M5 will replace these with real reminder services.
         intent = state.get("intent")
         message = state.get("sanitized_message", "")
         if intent == "create_reminder":
+            user_id = state.get("user_id")
+            if self.reminder_service is not None and user_id is not None:
+                result = await self.reminder_service.create_from_text(user_id=user_id, text=message)
+                return AgentState(
+                    slots=_extract_reminder_slots(message),
+                    tool_result=_reminder_create_tool_result(result),
+                )
             return AgentState(
                 slots=_extract_reminder_slots(message),
                 tool_result={
@@ -77,6 +90,10 @@ class LifeAgentGraph:
                 },
             )
         if intent == "query_reminder":
+            user_id = state.get("user_id")
+            if self.reminder_service is not None and user_id is not None:
+                reminders = await self.reminder_service.list_active(user_id=user_id)
+                return AgentState(tool_result=_reminder_query_tool_result(reminders))
             return AgentState(
                 tool_result={
                     "tool": "query_reminder",
@@ -144,4 +161,42 @@ def _extract_reminder_slots(message: str) -> dict[str, Any]:
         "original_text": message,
         "has_time_hint": has_time_hint,
         "task_text": message,
+    }
+
+
+def _reminder_create_tool_result(result) -> dict[str, Any]:
+    if result.needs_clarification:
+        return {
+            "tool": "create_reminder",
+            "status": result.status,
+            "message": result.message,
+            "needs_clarification": True,
+        }
+    reminder = result.reminder
+    return {
+        "tool": "create_reminder",
+        "status": result.status,
+        "message": result.message,
+        "reminder_id": reminder.id if reminder else None,
+        "title": reminder.title if reminder else None,
+        "scheduled_at": (
+            reminder.scheduled_at.isoformat() if reminder and reminder.scheduled_at else None
+        ),
+    }
+
+
+def _reminder_query_tool_result(reminders) -> dict[str, Any]:
+    return {
+        "tool": "query_reminder",
+        "status": "success",
+        "count": len(reminders),
+        "items": [
+            {
+                "id": item.id,
+                "title": item.title,
+                "scheduled_at": item.scheduled_at.isoformat() if item.scheduled_at else None,
+                "status": item.status,
+            }
+            for item in reminders
+        ],
     }

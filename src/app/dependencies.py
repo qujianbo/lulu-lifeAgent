@@ -1,9 +1,18 @@
 from collections.abc import AsyncIterator
+from functools import lru_cache
 
+from fastapi import Depends
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.config import Settings, get_settings
+
+SETTINGS_DEPENDENCY = Depends(get_settings)
 
 
 def get_database_engine(settings: Settings | None = None) -> AsyncEngine | None:
@@ -11,6 +20,35 @@ def get_database_engine(settings: Settings | None = None) -> AsyncEngine | None:
     if not settings.database_url:
         return None
     return create_async_engine(settings.database_url, pool_pre_ping=True)
+
+
+@lru_cache
+def get_shared_database_engine(database_url: str | None) -> AsyncEngine | None:
+    if not database_url:
+        return None
+    return create_async_engine(database_url, pool_pre_ping=True)
+
+
+@lru_cache
+def get_shared_session_factory(
+    database_url: str | None,
+) -> async_sessionmaker[AsyncSession] | None:
+    engine = get_shared_database_engine(database_url)
+    if engine is None:
+        return None
+    return async_sessionmaker(engine, expire_on_commit=False)
+
+
+async def get_database_session(
+    settings: Settings = SETTINGS_DEPENDENCY,
+) -> AsyncIterator[AsyncSession | None]:
+    # Database stays optional for local UI checks before Docker services are available.
+    session_factory = get_shared_session_factory(settings.database_url)
+    if session_factory is None:
+        yield None
+        return
+    async with session_factory() as session:
+        yield session
 
 
 async def ping_database(settings: Settings | None = None) -> bool | None:

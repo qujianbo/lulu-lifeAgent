@@ -3,6 +3,7 @@ from typing import Any
 
 from app.agent.graph import LifeAgentGraph
 from app.services.llm.deepseek import DeepSeekProvider
+from app.services.reminders.service import ReminderService
 
 
 @dataclass(frozen=True)
@@ -16,12 +17,17 @@ class LocalAgentResult:
 
 
 class LocalAgentService:
-    def __init__(self, llm: DeepSeekProvider) -> None:
-        self.graph = LifeAgentGraph(llm)
+    def __init__(
+        self,
+        llm: DeepSeekProvider,
+        *,
+        reminder_service: ReminderService | None = None,
+    ) -> None:
+        self.graph = LifeAgentGraph(llm, reminder_service=reminder_service)
 
-    async def chat(self, user_message: str) -> LocalAgentResult:
+    async def chat(self, user_message: str, *, user_id: int | None = None) -> LocalAgentResult:
         # Local endpoint now goes through the same LangGraph skeleton used by Agent flows.
-        state = await self.graph.ainvoke({"raw_message": user_message})
+        state = await self.graph.ainvoke({"raw_message": user_message, "user_id": user_id})
         return LocalAgentResult(
             content=state.get("final_response", ""),
             model=state.get("model", "none"),
