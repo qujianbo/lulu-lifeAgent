@@ -26,6 +26,14 @@ class FakeMemoryService:
 
         return Result()
 
+    async def delete_from_text(self, *, user_id: int, text: str):
+        class Result:
+            status = "deleted"
+            message = "记忆已删除。"
+            profile = None
+
+        return Result()
+
 
 async def test_agent_graph_routes_create_reminder() -> None:
     graph = LifeAgentGraph(FakeLLM())
@@ -47,6 +55,16 @@ async def test_agent_graph_routes_memory_update() -> None:
     assert result["tool_result"]["tool"] == "memory_update"
     assert result["tool_result"]["status"] == "saved"
     assert result["final_response"] == "图回复正常"
+
+
+async def test_agent_graph_routes_memory_delete() -> None:
+    graph = LifeAgentGraph(FakeLLM(), memory_service=FakeMemoryService())
+
+    result = await graph.ainvoke({"raw_message": "忘掉记忆 #1", "user_id": 1})
+
+    assert result["intent"] == "memory_delete"
+    assert result["tool_result"]["tool"] == "memory_delete"
+    assert result["tool_result"]["status"] == "deleted"
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:
