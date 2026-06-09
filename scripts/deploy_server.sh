@@ -58,22 +58,12 @@ if [[ -n "$(git status --short)" ]]; then
 fi
 
 echo "==> Syncing source files"
-COPYFILE_DISABLE=1 tar \
-  --exclude='.git' \
-  --exclude='.env' \
-  --exclude='.venv' \
-  --exclude='.pytest_cache' \
-  --exclude='.ruff_cache' \
-  --exclude='__pycache__' \
-  --exclude='*.pyc' \
-  --exclude='logs' \
-  --exclude='postgres_data' \
-  --exclude='redis_data' \
-  --exclude='DATABASE_DESIGN.md' \
-  --exclude='PRD.md' \
-  --exclude='PROJECT_IMPLEMENTATION_CHECKLIST.md' \
-  --exclude='TECHNICAL_IMPLEMENTATION.md' \
-  -czf - . \
+git ls-files -z --cached --modified --others --exclude-standard \
+  | while IFS= read -r -d '' path; do
+      # Deleted tracked files are skipped; remote cleanup can be handled separately if needed.
+      [[ -e "$path" ]] && printf '%s\0' "$path"
+    done \
+  | COPYFILE_DISABLE=1 tar --format=ustar --null -T - -czf - \
   | ssh "$SSH_TARGET" "mkdir -p '$REMOTE_DIR' && tar -xzf - -C '$REMOTE_DIR'"
 
 if [[ "$SKIP_MIGRATE" -eq 0 ]]; then
