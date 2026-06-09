@@ -96,6 +96,18 @@ docker compose run --rm migrate
 docker compose up -d --build app scheduler
 ```
 
+本地一键同步并重启服务器：
+
+```bash
+scripts/deploy_server.sh
+```
+
+依赖或 Dockerfile 变更时使用：
+
+```bash
+scripts/deploy_server.sh --build
+```
+
 PostgreSQL 和 Redis 只绑定服务器本机 `127.0.0.1`，不要对公网开放。FastAPI 当前暴露 `8000` 端口，正式接入域名时建议放到 Nginx/Caddy 后面。
 
 ## 成本口径
