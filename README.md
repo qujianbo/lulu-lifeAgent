@@ -102,6 +102,8 @@ docker compose up -d --build app scheduler
 scripts/deploy_server.sh
 ```
 
+脚本会同步代码、执行迁移、重启 `app scheduler`，并检查 `/healthz` 和 `/debug/chat`。
+
 依赖或 Dockerfile 变更时使用：
 
 ```bash

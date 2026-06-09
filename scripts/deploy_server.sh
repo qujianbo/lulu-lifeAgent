@@ -5,6 +5,7 @@ set -Eeuo pipefail
 SSH_TARGET="${SSH_TARGET:-aliyun-life-agent}"
 REMOTE_DIR="${REMOTE_DIR:-/home/admin/lulu-lifeAgent}"
 APP_URL="${APP_URL:-http://127.0.0.1:8000}"
+DEBUG_PAGE_PATH="${DEBUG_PAGE_PATH:-/debug/chat}"
 
 BUILD=0
 SKIP_MIGRATE=0
@@ -22,6 +23,7 @@ Environment variables:
   SSH_TARGET       SSH target or alias. Default: aliyun-life-agent
   REMOTE_DIR       Remote project directory. Default: /home/admin/lulu-lifeAgent
   APP_URL          Health check URL from server side. Default: http://127.0.0.1:8000
+  DEBUG_PAGE_PATH  Debug page path to verify. Default: /debug/chat
 EOF
 }
 
@@ -82,7 +84,10 @@ fi
 echo "==> Waiting for app health"
 run_remote "for i in \$(seq 1 20); do curl -fsS '$APP_URL/healthz' >/dev/null && exit 0; sleep 2; done; curl -fsS '$APP_URL/healthz'"
 
+echo "==> Verifying debug chat page"
+run_remote "curl -fsS '$APP_URL$DEBUG_PAGE_PATH' | grep -q '生活管家 Agent 调试'"
+
 echo "==> Service status"
 run_remote "docker compose ps"
 
-echo "==> Deploy complete"
+echo "==> Deploy complete: $APP_URL$DEBUG_PAGE_PATH"
