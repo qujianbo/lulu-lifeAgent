@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     admin_token: str | None = Field(default=None, repr=False)
     briefing_rss_urls: str | None = None
+    briefing_rss_timeout_seconds: int = 8
 
 
 @lru_cache

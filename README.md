@@ -67,6 +67,7 @@ DEEPSEEK_MODEL=deepseek-v4-pro
 ADMIN_TOKEN=换成强 token
 PUBLIC_BASE_URL=https://你的域名
 BRIEFING_RSS_URLS=https://36kr.com/feed,https://sspai.com/feed,https://www.solidot.org/index.rss,https://feeds.feedburner.com/ruanyifeng,https://www.technologyreview.com/feed/
+BRIEFING_RSS_TIMEOUT_SECONDS=8
 ```
 
 启动和迁移：

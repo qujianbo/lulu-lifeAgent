@@ -486,7 +486,7 @@ async def local_briefing_preview(
     articles = await fetch_rss_articles(
         rss_urls=rss_urls,
         limit=5,
-        timeout_seconds=settings.llm_timeout_seconds,
+        timeout_seconds=settings.briefing_rss_timeout_seconds,
     )
     return LocalBriefingPreviewResponse(
         status="success",
