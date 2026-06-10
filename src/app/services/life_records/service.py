@@ -35,7 +35,7 @@ class LifeRecordService:
         if candidate is None:
             return LifeRecordCreateResult(
                 status="needs_clarification",
-                message="我还没识别出要记录的生活事项。",
+                message="我还没识别出要保存的备忘内容。",
                 needs_clarification=True,
             )
         record = await self.repository.create(
@@ -48,7 +48,7 @@ class LifeRecordService:
             extra_metadata={"source_text": text},
             recorded_at=datetime.now(UTC),
         )
-        return LifeRecordCreateResult(status="created", message="生活记录已保存。", record=record)
+        return LifeRecordCreateResult(status="created", message="备忘录已保存。", record=record)
 
     async def list_active(
         self,
@@ -65,7 +65,7 @@ class LifeRecordService:
 
 
 def parse_life_record_text(text: str) -> LifeRecordCandidate | None:
-    # Rule parser covers common MVP records: expense, income, weight, exercise, sleep and water.
+    # Rule parser covers common MVP memos: expense, income, weight, exercise, sleep and water.
     normalized = text.strip()
     if not normalized:
         return None
@@ -94,7 +94,7 @@ def parse_life_record_text(text: str) -> LifeRecordCandidate | None:
         amount = _extract_amount(normalized)
         return LifeRecordCandidate("water", _clean_record_content(normalized), amount, "ml", [])
 
-    if "记录" in normalized:
+    if any(keyword in normalized for keyword in ("备忘", "备忘录", "记录")):
         return LifeRecordCandidate("note", _clean_record_content(normalized), None, None, [])
 
     return None
@@ -120,5 +120,5 @@ def _extract_amount(text: str) -> Decimal | None:
 
 
 def _clean_record_content(text: str) -> str:
-    content = re.sub(r"^(帮我|请|记录一下|记录|记账)", "", text)
+    content = re.sub(r"^(帮我|请|备忘一下|备忘录|备忘|记录一下|记录|记账)", "", text)
     return content.strip(" ：:，。,.；;")[:2000]

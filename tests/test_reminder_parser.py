@@ -7,7 +7,7 @@ from app.services.reminders.parser import parse_reminder_text
 def test_parse_tomorrow_morning_reminder() -> None:
     now = datetime(2026, 6, 9, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
 
-    result = parse_reminder_text("明早 8 点提醒我带身份证", now=now)
+    result = parse_reminder_text("明早 8 点待办：带身份证", now=now)
 
     assert result.needs_clarification is False
     assert result.title == "带身份证"
@@ -17,7 +17,7 @@ def test_parse_tomorrow_morning_reminder() -> None:
 def test_parse_requires_time_clarification() -> None:
     now = datetime(2026, 6, 9, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
 
-    result = parse_reminder_text("提醒我带身份证", now=now)
+    result = parse_reminder_text("待办：带身份证", now=now)
 
     assert result.needs_clarification is True
     assert result.scheduled_at is None

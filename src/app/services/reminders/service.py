@@ -41,7 +41,7 @@ class ReminderService:
         if parsed.needs_clarification:
             return ReminderCreateResult(
                 status="needs_clarification",
-                message="我还需要知道具体时间和提醒事项。",
+                message="我还需要知道具体时间和待办事项。",
                 needs_clarification=True,
             )
 
@@ -60,7 +60,7 @@ class ReminderService:
         await self.scheduled_jobs.create_reminder_job(reminder=reminder)
         return ReminderCreateResult(
             status="created",
-            message="提醒已创建。",
+            message="待办事项已创建。",
             reminder=reminder,
         )
 
@@ -72,38 +72,46 @@ class ReminderService:
         if isinstance(reminder, list):
             return ReminderMutationResult(
                 status="needs_confirmation",
-                message="找到多个可能的提醒，需要指定要完成哪一个。",
+                message="找到多个可能的待办事项，需要指定要完成哪一个。",
                 candidates=reminder,
                 needs_confirmation=True,
             )
         if reminder is None:
-            return ReminderMutationResult(status="not_found", message="没有找到可完成的提醒。")
+            return ReminderMutationResult(status="not_found", message="没有找到可完成的待办事项。")
         updated = await self.repository.mark_completed(reminder_id=reminder.id, user_id=user_id)
         await self.scheduled_jobs.cancel_pending_by_ref(
             job_type="reminder_due",
             ref_type="reminder",
             ref_id=reminder.id,
         )
-        return ReminderMutationResult(status="completed", message="提醒已完成。", reminder=updated)
+        return ReminderMutationResult(
+            status="completed",
+            message="待办事项已完成。",
+            reminder=updated,
+        )
 
     async def delete_from_text(self, *, user_id: int, text: str) -> ReminderMutationResult:
         reminder = await self._resolve_one_reminder(user_id=user_id, text=text)
         if isinstance(reminder, list):
             return ReminderMutationResult(
                 status="needs_confirmation",
-                message="找到多个可能的提醒，需要指定要删除哪一个。",
+                message="找到多个可能的待办事项，需要指定要删除哪一个。",
                 candidates=reminder,
                 needs_confirmation=True,
             )
         if reminder is None:
-            return ReminderMutationResult(status="not_found", message="没有找到可删除的提醒。")
+            return ReminderMutationResult(status="not_found", message="没有找到可删除的待办事项。")
         updated = await self.repository.soft_delete(reminder_id=reminder.id, user_id=user_id)
         await self.scheduled_jobs.cancel_pending_by_ref(
             job_type="reminder_due",
             ref_type="reminder",
             ref_id=reminder.id,
         )
-        return ReminderMutationResult(status="deleted", message="提醒已删除。", reminder=updated)
+        return ReminderMutationResult(
+            status="deleted",
+            message="待办事项已删除。",
+            reminder=updated,
+        )
 
     async def _resolve_one_reminder(
         self,
@@ -136,5 +144,9 @@ def _extract_id(text: str) -> int | None:
 
 
 def _extract_keyword(text: str) -> str:
-    keyword = re.sub(r"(完成|做完|已办|办完|删除|取消|删掉|提醒|待办|编号|id|ID|#|\d+)", "", text)
+    keyword = re.sub(
+        r"(完成|做完|已办|办完|删除|取消|删掉|提醒|待办事项|待办|编号|id|ID|#|\d+)",
+        "",
+        text,
+    )
     return keyword.strip(" ，。,.")

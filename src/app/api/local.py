@@ -564,13 +564,13 @@ async def local_trigger_reminder_now(
         if reminder is None:
             return LocalReminderMutationResponse(
                 status="not_found",
-                message="提醒不存在或已经处理。",
+                message="待办事项不存在或已经处理。",
                 user_id=user_id,
             )
         await ScheduledJobRepository(session).force_due_reminder_job(reminder=reminder)
     return LocalReminderMutationResponse(
         status="queued",
-        message="提醒已加入立即触发队列。",
+        message="待办事项已加入立即触发队列。",
         user_id=user_id,
         reminder_id=reminder_id,
     )
@@ -687,7 +687,7 @@ async def _resolve_debug_user_id(
 ) -> int | None:
     if user_id is not None or session is None:
         return user_id
-    # Use one stable local user so the debug UI can create/query reminders immediately.
+    # Use one stable local user so the debug UI can create/query to-dos immediately.
     user = await UserRepository(session).get_or_create_wechat_user("local-debug-user")
     return user.id
 
@@ -713,11 +713,11 @@ async def _mutate_reminder(
                 user_id=user_id or 0,
             )
             status = "completed"
-            message = "提醒已完成。"
+            message = "待办事项已完成。"
         else:
             reminder = await repository.soft_delete(reminder_id=reminder_id, user_id=user_id or 0)
             status = "deleted"
-            message = "提醒已删除。"
+            message = "待办事项已删除。"
         if reminder is not None:
             await ScheduledJobRepository(session).cancel_pending_by_ref(
                 job_type="reminder_due",
@@ -727,7 +727,7 @@ async def _mutate_reminder(
     if reminder is None:
         return LocalReminderMutationResponse(
             status="not_found",
-            message="提醒不存在或已经处理。",
+            message="待办事项不存在或已经处理。",
             user_id=user_id,
         )
     return LocalReminderMutationResponse(

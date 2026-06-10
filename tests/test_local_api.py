@@ -8,7 +8,11 @@ from app.services.llm.types import LLMResponse
 
 async def _fake_chat(self, messages, *args, **kwargs) -> LLMResponse:
     if "意图路由器" in messages[0].content:
-        intent = "create_reminder" if "提醒" in messages[-1].content else "general_qa"
+        intent = (
+            "create_reminder"
+            if "提醒" in messages[-1].content or "待办" in messages[-1].content
+            else "general_qa"
+        )
         return LLMResponse(
             content=(
                 '{"intent":"'
@@ -67,7 +71,7 @@ def test_local_chat_returns_agent_response(monkeypatch) -> None:
     app.dependency_overrides[get_settings] = _settings_without_admin_token
     client = TestClient(app)
 
-    response = client.post("/api/local/chat", json={"message": "明早提醒我带身份证"})
+    response = client.post("/api/local/chat", json={"message": "明早待办：带身份证"})
     app.dependency_overrides.clear()
 
     assert response.status_code == 200

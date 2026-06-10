@@ -9,7 +9,7 @@ class FakeLLM:
         if "意图路由器" in messages[0].content:
             user_message = messages[-1].content
             intent = "general_qa"
-            if "提醒" in user_message:
+            if "提醒" in user_message or "待办" in user_message:
                 intent = "create_reminder"
             if "记住" in user_message:
                 intent = "memory_update"
@@ -71,7 +71,7 @@ class FakeLifeRecordService:
     async def create_from_text(self, *, user_id: int, text: str):
         class Result:
             status = "created"
-            message = "生活记录已保存。"
+            message = "备忘录已保存。"
             needs_clarification = False
             record = None
 
@@ -101,7 +101,7 @@ class FakeBriefingService:
 async def test_agent_graph_routes_create_reminder() -> None:
     graph = LifeAgentGraph(FakeLLM())
 
-    result = await graph.ainvoke({"raw_message": "明早 8 点提醒我带身份证"})
+    result = await graph.ainvoke({"raw_message": "明早 8 点待办：带身份证"})
 
     assert result["intent"] == "create_reminder"
     assert result["tool_result"]["tool"] == "create_reminder"

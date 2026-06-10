@@ -26,13 +26,13 @@ INTENT_CLASSIFIER_PROMPT = """你是生活管家 Agent 的意图路由器。
 
 允许的 intent：
 - general_qa：普通问答、建议、闲聊、无法归入工具的生活问题
-- create_reminder：创建提醒或待办
-- query_reminder：查询提醒或待办
-- complete_reminder：完成提醒或待办
-- delete_reminder：删除、取消提醒或待办
+- create_reminder：创建待办事项，需要在某个时间通知或触发
+- query_reminder：查询待办事项
+- complete_reminder：完成待办事项
+- delete_reminder：删除、取消待办事项
 - briefing：资讯、新闻、天气、早报、简报预览或订阅
-- create_life_record：记账、收入、体重、运动、睡眠、喝水、普通生活记录
-- query_life_record：查询、统计生活记录或消费记录
+- create_life_record：创建备忘录，包括记账、收入、体重、运动、睡眠、喝水、普通备忘
+- query_life_record：查询、统计备忘录或消费备忘
 - memory_update：要求你记住偏好、个人信息、长期习惯
 - memory_query：查询你记住了什么、用户偏好是什么
 - memory_delete：删除、忘掉记忆或偏好

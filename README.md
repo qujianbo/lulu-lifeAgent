@@ -26,7 +26,7 @@ curl http://127.0.0.1:8000/api/local/deepseek/ping
 
 curl -X POST http://127.0.0.1:8000/api/local/chat \
   -H 'content-type: application/json' \
-  -d '{"message":"明早 8 点提醒我带身份证"}'
+  -d '{"message":"明早 8 点待办：带身份证"}'
 ```
 
 如果 `.env` 配置了 `ADMIN_TOKEN`，调试接口需要增加：
@@ -87,7 +87,7 @@ curl -H "x-admin-token: $ADMIN_TOKEN" http://127.0.0.1:8000/api/local/deepseek/p
 curl -H "x-admin-token: $ADMIN_TOKEN" \
   -H 'content-type: application/json' \
   -X POST http://127.0.0.1:8000/api/local/chat \
-  -d '{"message":"明早 8 点提醒我带身份证"}'
+  -d '{"message":"明早 8 点待办：带身份证"}'
 curl -H "x-admin-token: $ADMIN_TOKEN" http://127.0.0.1:8000/api/local/briefing/preview
 ```
 

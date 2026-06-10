@@ -13,8 +13,8 @@ from app.services.memory import MemoryService, format_memories_for_prompt
 from app.services.reminders.service import ReminderService
 
 SYSTEM_PROMPT = """你是露露生活管家 Agent。
-当前处于后端联调阶段，能力包括日常问答、提醒意图理解和资讯偏好沟通。
-回答要简洁、可靠；涉及提醒时必须复述识别到的时间和事项。"""
+当前处于后端联调阶段，能力包括日常问答、待办事项、备忘录和资讯偏好沟通。
+回答要简洁、可靠；涉及待办事项时必须复述识别到的时间和事项。"""
 
 
 class LifeAgentGraph:
@@ -123,7 +123,7 @@ class LifeAgentGraph:
                 tool_result={
                     "tool": "create_reminder",
                     "status": "dry_run",
-                    "message": "提醒工具尚未落库，当前只返回识别结果。",
+                    "message": "待办事项工具尚未落库，当前只返回识别结果。",
                 },
             )
         if intent == "query_reminder":
@@ -135,7 +135,7 @@ class LifeAgentGraph:
                 tool_result={
                     "tool": "query_reminder",
                     "status": "dry_run",
-                    "message": "提醒查询工具将在 M5 接入数据库。",
+                    "message": "待办事项查询工具需要数据库连接。",
                 }
             )
         if intent == "complete_reminder":
@@ -152,7 +152,7 @@ class LifeAgentGraph:
                 tool_result={
                     "tool": "complete_reminder",
                     "status": "dry_run",
-                    "message": "提醒完成工具需要数据库连接。",
+                    "message": "待办事项完成工具需要数据库连接。",
                 }
             )
         if intent == "delete_reminder":
@@ -166,7 +166,7 @@ class LifeAgentGraph:
                 tool_result={
                     "tool": "delete_reminder",
                     "status": "dry_run",
-                    "message": "提醒删除工具需要数据库连接。",
+                    "message": "待办事项删除工具需要数据库连接。",
                 }
             )
         if intent == "briefing":
@@ -197,7 +197,7 @@ class LifeAgentGraph:
                 tool_result={
                     "tool": "create_life_record",
                     "status": "dry_run",
-                    "message": "生活记录工具需要数据库连接。",
+                    "message": "备忘录工具需要数据库连接。",
                 }
             )
         if intent == "query_life_record":
@@ -212,7 +212,7 @@ class LifeAgentGraph:
                 tool_result={
                     "tool": "query_life_record",
                     "status": "dry_run",
-                    "message": "生活记录查询工具需要数据库连接。",
+                    "message": "备忘录查询工具需要数据库连接。",
                 }
             )
         if intent == "memory_update":
@@ -418,6 +418,7 @@ def _life_record_items(records) -> list[dict[str, Any]]:
     return [
         {
             "id": item.id,
+            "memo_type": item.record_type,
             "record_type": item.record_type,
             "content": item.content,
             "amount": str(item.amount) if item.amount is not None else None,
@@ -431,12 +432,14 @@ def _life_record_items(records) -> list[dict[str, Any]]:
 
 def _life_record_create_tool_result(result) -> dict[str, Any]:
     record = result.record
+    memo = _life_record_items([record])[0] if record else None
     return {
         "tool": "create_life_record",
         "status": result.status,
         "message": result.message,
         "needs_clarification": result.needs_clarification,
-        "record": _life_record_items([record])[0] if record else None,
+        "memo": memo,
+        "record": memo,
     }
 
 

@@ -69,6 +69,6 @@ def _extract_time_text(message: str) -> str | None:
 
 
 def _clean_title(message: str) -> str:
-    title = re.sub(r"(请)?(提醒我|叫我|帮我提醒|设置提醒)", "", message)
+    title = re.sub(r"(请)?(提醒我|叫我|帮我提醒|设置提醒|待办事项|待办)", "", message)
     title = re.sub(TIME_PATTERN, "", title)
-    return title.strip(" ，。,.")[:200]
+    return title.strip(" ：:，。,.")[:200]
