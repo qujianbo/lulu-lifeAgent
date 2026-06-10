@@ -393,6 +393,7 @@
       const runSchedulerButton = document.querySelector("#run-scheduler");
       const triggerNowButton = document.querySelector("#trigger-now");
       const triggerReminderIdInput = document.querySelector("#trigger-reminder-id");
+      const DEBUG_ITEM_LIMIT = 3;
 
       tokenInput.value = localStorage.getItem("life-agent-admin-token") || "";
       tokenInput.addEventListener("input", () => {
@@ -489,7 +490,7 @@
           return;
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
-        remindersNode.textContent = JSON.stringify(payload.items || [], null, 2);
+        remindersNode.textContent = JSON.stringify(latestItems(payload.items), null, 2);
       }
 
       async function loadMemories() {
@@ -503,7 +504,7 @@
           return;
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
-        memoriesNode.textContent = JSON.stringify(payload.items || [], null, 2);
+        memoriesNode.textContent = JSON.stringify(latestItems(payload.items), null, 2);
       }
 
       async function loadLifeRecords() {
@@ -517,7 +518,7 @@
           return;
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
-        lifeRecordsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+        lifeRecordsNode.textContent = JSON.stringify(latestItems(payload.items), null, 2);
       }
 
       async function loadSubscriptions() {
@@ -531,7 +532,7 @@
           return;
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
-        subscriptionsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+        subscriptionsNode.textContent = JSON.stringify(latestItems(payload.items), null, 2);
       }
 
       async function loadMessageLogs() {
@@ -545,7 +546,7 @@
           return;
         }
         userIdNode.textContent = payload.user_id || userIdNode.textContent;
-        messageLogsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+        messageLogsNode.textContent = JSON.stringify(latestItems(payload.items), null, 2);
       }
 
       async function loadBriefingPreview() {
@@ -554,7 +555,11 @@
         if (token) headers["x-admin-token"] = token;
         const response = await fetch("/api/local/briefing/preview", { headers });
         const payload = await response.json();
-        briefingPreviewNode.textContent = JSON.stringify(payload, null, 2);
+        briefingPreviewNode.textContent = JSON.stringify(
+          { ...payload, items: latestItems(payload.items) },
+          null,
+          2,
+        );
       }
 
       async function loadScheduledJobs() {
@@ -567,7 +572,7 @@
           jobsNode.textContent = JSON.stringify(payload, null, 2);
           return;
         }
-        jobsNode.textContent = JSON.stringify(payload.items || [], null, 2);
+        jobsNode.textContent = JSON.stringify(latestItems(payload.items), null, 2);
       }
 
       async function runSchedulerOnce() {
@@ -604,6 +609,10 @@
       function setLoading(isLoading) {
         sendButton.disabled = isLoading;
         statusNode.textContent = isLoading ? "请求中" : statusNode.textContent;
+      }
+
+      function latestItems(items) {
+        return (items || []).slice(0, DEBUG_ITEM_LIMIT);
       }
 
       appendMessage("assistant", "我在，可以开始验证。");

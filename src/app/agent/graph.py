@@ -9,11 +9,12 @@ from app.services.life_records import LifeRecordService
 from app.services.life_records.service import infer_record_type_for_query
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMMessage
+from app.services.markets import MarketService
 from app.services.memory import MemoryService, format_memories_for_prompt
 from app.services.reminders.service import ReminderService
 
 SYSTEM_PROMPT = """你是露露生活管家 Agent。
-当前处于后端联调阶段，能力包括日常问答、待办事项、备忘录和资讯偏好沟通。
+当前处于后端联调阶段，能力包括日常问答、待办事项、备忘录、证券基础信息和资讯偏好沟通。
 回答要简洁、可靠；涉及待办事项时必须复述识别到的时间和事项。"""
 
 
@@ -26,12 +27,14 @@ class LifeAgentGraph:
         memory_service: MemoryService | None = None,
         life_record_service: LifeRecordService | None = None,
         briefing_service: BriefingService | None = None,
+        market_service: MarketService | None = None,
     ) -> None:
         self.llm = llm
         self.reminder_service = reminder_service
         self.memory_service = memory_service
         self.life_record_service = life_record_service
         self.briefing_service = briefing_service
+        self.market_service = market_service
         self.intent_classifier = LLMIntentClassifier(llm)
         self.graph = self._build_graph()
 
@@ -98,6 +101,7 @@ class LifeAgentGraph:
             "complete_reminder",
             "delete_reminder",
             "briefing",
+            "stock_query",
             "create_life_record",
             "query_life_record",
             "memory_update",
@@ -183,6 +187,17 @@ class LifeAgentGraph:
                     "tool": "briefing_subscription",
                     "status": "dry_run",
                     "message": "资讯订阅将在每日简报阶段接入。",
+                }
+            )
+        if intent == "stock_query":
+            if self.market_service is not None:
+                result = await self.market_service.query_from_text(message)
+                return AgentState(tool_result=_market_quote_tool_result(result))
+            return AgentState(
+                tool_result={
+                    "tool": "stock_query",
+                    "status": "dry_run",
+                    "message": "证券市场查询工具尚未配置。",
                 }
             )
         if intent == "create_life_record":
@@ -470,6 +485,29 @@ def _briefing_tool_result(result) -> dict[str, Any]:
         }
         if subscription
         else None,
+    }
+
+
+def _market_quote_tool_result(result) -> dict[str, Any]:
+    return {
+        "tool": "stock_query",
+        "status": result.status,
+        "message": result.message,
+        "items": [
+            {
+                "symbol": item.symbol,
+                "name": item.name,
+                "market": item.market,
+                "currency": item.currency,
+                "price": str(item.price) if item.price is not None else None,
+                "change": str(item.change) if item.change is not None else None,
+                "change_percent": (
+                    str(item.change_percent) if item.change_percent is not None else None
+                ),
+                "exchange_time": item.exchange_time,
+            }
+            for item in result.quotes
+        ],
     }
 
 

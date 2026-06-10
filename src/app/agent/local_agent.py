@@ -5,6 +5,7 @@ from app.agent.graph import LifeAgentGraph
 from app.services.briefing import BriefingService
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider
+from app.services.markets import MarketService
 from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
 
@@ -28,6 +29,7 @@ class LocalAgentService:
         memory_service: MemoryService | None = None,
         life_record_service: LifeRecordService | None = None,
         briefing_service: BriefingService | None = None,
+        market_service: MarketService | None = None,
     ) -> None:
         self.graph = LifeAgentGraph(
             llm,
@@ -35,6 +37,7 @@ class LocalAgentService:
             memory_service=memory_service,
             life_record_service=life_record_service,
             briefing_service=briefing_service,
+            market_service=market_service,
         )
 
     async def chat(self, user_message: str, *, user_id: int | None = None) -> LocalAgentResult:

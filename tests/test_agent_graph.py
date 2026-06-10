@@ -2,6 +2,7 @@ import json
 
 from app.agent.graph import LifeAgentGraph
 from app.services.llm.types import LLMResponse
+from app.services.markets import MarketQuote, MarketQuoteResult
 
 
 class FakeLLM:
@@ -19,6 +20,8 @@ class FakeLLM:
                 intent = "create_life_record"
             if "科技新闻" in user_message:
                 intent = "briefing"
+            if "股票" in user_message or "证券" in user_message or "AAPL" in user_message:
+                intent = "stock_query"
             if user_message.strip() == "用户消息：":
                 intent = "unknown"
             return LLMResponse(
@@ -98,6 +101,26 @@ class FakeBriefingService:
         return Result()
 
 
+class FakeMarketService:
+    async def query_from_text(self, text: str):
+        return MarketQuoteResult(
+            status="success",
+            message="证券基础信息查询成功。",
+            quotes=[
+                MarketQuote(
+                    symbol="AAPL",
+                    name="Apple Inc.",
+                    market="NasdaqGS",
+                    currency="USD",
+                    price=None,
+                    change=None,
+                    change_percent=None,
+                    exchange_time=None,
+                )
+            ],
+        )
+
+
 async def test_agent_graph_routes_create_reminder() -> None:
     graph = LifeAgentGraph(FakeLLM())
 
@@ -148,6 +171,16 @@ async def test_agent_graph_routes_briefing() -> None:
     assert result["intent"] == "briefing"
     assert result["tool_result"]["tool"] == "briefing_subscription"
     assert result["tool_result"]["status"] == "preview"
+
+
+async def test_agent_graph_routes_stock_query() -> None:
+    graph = LifeAgentGraph(FakeLLM(), market_service=FakeMarketService())
+
+    result = await graph.ainvoke({"raw_message": "查一下 AAPL 股票", "user_id": 1})
+
+    assert result["intent"] == "stock_query"
+    assert result["tool_result"]["tool"] == "stock_query"
+    assert result["tool_result"]["status"] == "success"
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:

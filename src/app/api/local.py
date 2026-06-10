@@ -27,6 +27,7 @@ from app.services.briefing.rss import fetch_rss_articles, split_rss_urls
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
 from app.services.llm.types import LLMMessage
+from app.services.markets import MarketService
 from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
 from app.services.scheduler import SchedulerService
@@ -35,6 +36,7 @@ router = APIRouter(prefix="/api/local", tags=["local"])
 logger = logging.getLogger(__name__)
 SETTINGS_DEPENDENCY = Depends(get_settings)
 DATABASE_SESSION_DEPENDENCY = Depends(get_database_session)
+DEBUG_LIST_LIMIT = 3
 
 
 class DeepSeekPingResponse(BaseModel):
@@ -236,12 +238,14 @@ async def local_chat(
     memory_service = MemoryService(session) if session is not None else None
     life_record_service = LifeRecordService(session) if session is not None else None
     briefing_service = BriefingService(session) if session is not None else None
+    market_service = MarketService()
     service = LocalAgentService(
         DeepSeekProvider(settings),
         reminder_service=reminder_service,
         memory_service=memory_service,
         life_record_service=life_record_service,
         briefing_service=briefing_service,
+        market_service=market_service,
     )
     try:
         user_id, result = await _chat_with_optional_database(
@@ -322,7 +326,10 @@ async def local_reminders(
     try:
         async with session.begin():
             resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
-            reminders = await ReminderService(session).list_active(user_id=resolved_user_id or 0)
+            reminders = await ReminderService(session).list_active(
+                user_id=resolved_user_id or 0,
+                limit=DEBUG_LIST_LIMIT,
+            )
     except Exception as exc:
         # Keep the debug page usable even when local DB is not running.
         logger.warning("local_reminders_database_fallback", extra={"_error": str(exc)})
@@ -352,7 +359,10 @@ async def local_memories(
     try:
         async with session.begin():
             resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
-            memories = await MemoryService(session).list_active(user_id=resolved_user_id or 0)
+            memories = await MemoryService(session).list_active(
+                user_id=resolved_user_id or 0,
+                limit=DEBUG_LIST_LIMIT,
+            )
     except Exception as exc:
         # Keep the debug page usable even when local DB is not running.
         logger.warning("local_memories_database_fallback", extra={"_error": str(exc)})
@@ -383,7 +393,10 @@ async def local_life_records(
     try:
         async with session.begin():
             resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
-            records = await LifeRecordService(session).list_active(user_id=resolved_user_id or 0)
+            records = await LifeRecordService(session).list_active(
+                user_id=resolved_user_id or 0,
+                limit=DEBUG_LIST_LIMIT,
+            )
     except Exception as exc:
         # Keep the debug page usable even when local DB is not running.
         logger.warning("local_life_records_database_fallback", extra={"_error": str(exc)})
@@ -417,7 +430,8 @@ async def local_subscriptions(
         async with session.begin():
             resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
             subscriptions = await BriefingService(session).list_active(
-                user_id=resolved_user_id or 0
+                user_id=resolved_user_id or 0,
+                limit=DEBUG_LIST_LIMIT,
             )
     except Exception as exc:
         # Keep the debug page usable even when local DB is not running.
@@ -450,7 +464,10 @@ async def local_message_logs(
     try:
         async with session.begin():
             resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
-            logs = await MessageLogRepository(session).list_recent(user_id=resolved_user_id)
+            logs = await MessageLogRepository(session).list_recent(
+                user_id=resolved_user_id,
+                limit=DEBUG_LIST_LIMIT,
+            )
     except Exception as exc:
         # Keep the debug page usable even when local DB is not running.
         logger.warning("local_message_logs_database_fallback", extra={"_error": str(exc)})
@@ -486,7 +503,7 @@ async def local_briefing_preview(
         return LocalBriefingPreviewResponse(status="no_sources", source_count=0, items=[])
     articles = await fetch_rss_articles(
         rss_urls=rss_urls,
-        limit=5,
+        limit=DEBUG_LIST_LIMIT,
         timeout_seconds=settings.briefing_rss_timeout_seconds,
     )
     return LocalBriefingPreviewResponse(
@@ -588,7 +605,7 @@ async def local_scheduled_jobs(
         resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
         jobs = await ScheduledJobRepository(session).list_recent(
             user_id=resolved_user_id,
-            limit=20,
+            limit=DEBUG_LIST_LIMIT,
         )
     return LocalScheduledJobsResponse(
         user_id=resolved_user_id,
