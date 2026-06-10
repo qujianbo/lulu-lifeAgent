@@ -6,7 +6,20 @@ from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMResponse
 
 
-async def _fake_chat(*args, **kwargs) -> LLMResponse:
+async def _fake_chat(self, messages, *args, **kwargs) -> LLMResponse:
+    if "意图路由器" in messages[0].content:
+        intent = "create_reminder" if "提醒" in messages[-1].content else "general_qa"
+        return LLMResponse(
+            content=(
+                '{"intent":"'
+                + intent
+                + '","confidence":0.99,"reason":"测试分类","slots":{}}'
+            ),
+            model="deepseek-test",
+            provider="deepseek",
+            latency_ms=12,
+            finish_reason="stop",
+        )
     return LLMResponse(
         content="后端正常",
         model="deepseek-test",

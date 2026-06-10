@@ -23,6 +23,8 @@ class AgentState(TypedDict, total=False):
     raw_message: str
     sanitized_message: str
     intent: AgentIntent
+    intent_confidence: float
+    intent_reason: str | None
     slots: dict[str, Any]
     context: dict[str, Any]
     tool_result: dict[str, Any] | None

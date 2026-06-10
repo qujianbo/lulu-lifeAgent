@@ -1,9 +1,41 @@
+import json
+
 from app.agent.graph import LifeAgentGraph
 from app.services.llm.types import LLMResponse
 
 
 class FakeLLM:
-    async def chat(self, *args, **kwargs) -> LLMResponse:
+    async def chat(self, messages, *args, **kwargs) -> LLMResponse:
+        if "意图路由器" in messages[0].content:
+            user_message = messages[-1].content
+            intent = "general_qa"
+            if "提醒" in user_message:
+                intent = "create_reminder"
+            if "记住" in user_message:
+                intent = "memory_update"
+            if "忘掉" in user_message:
+                intent = "memory_delete"
+            if "记账" in user_message:
+                intent = "create_life_record"
+            if "科技新闻" in user_message:
+                intent = "briefing"
+            if user_message.strip() == "用户消息：":
+                intent = "unknown"
+            return LLMResponse(
+                content=json.dumps(
+                    {
+                        "intent": intent,
+                        "confidence": 0.99,
+                        "reason": "测试分类",
+                        "slots": {},
+                    },
+                    ensure_ascii=False,
+                ),
+                model="fake-model",
+                provider="fake",
+                latency_ms=1,
+                finish_reason="stop",
+            )
         return LLMResponse(
             content="图回复正常",
             model="fake-model",

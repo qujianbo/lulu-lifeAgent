@@ -2,7 +2,7 @@ from typing import Any
 
 from langgraph.graph import END, StateGraph
 
-from app.agent.intent import infer_intent
+from app.agent.intent_classifier import LLMIntentClassifier
 from app.agent.state import AgentState
 from app.services.briefing import BriefingService
 from app.services.life_records import LifeRecordService
@@ -32,6 +32,7 @@ class LifeAgentGraph:
         self.memory_service = memory_service
         self.life_record_service = life_record_service
         self.briefing_service = briefing_service
+        self.intent_classifier = LLMIntentClassifier(llm)
         self.graph = self._build_graph()
 
     async def ainvoke(self, state: AgentState) -> AgentState:
@@ -79,7 +80,16 @@ class LifeAgentGraph:
         return AgentState(context=context)
 
     async def intent_router(self, state: AgentState) -> AgentState:
-        return AgentState(intent=infer_intent(state.get("sanitized_message", "")))
+        message = state.get("sanitized_message", "")
+        if not message:
+            return AgentState(intent="unknown", slots={})
+        result = await self.intent_classifier.classify(message)
+        return AgentState(
+            intent=result.intent,
+            intent_confidence=result.confidence,
+            intent_reason=result.reason,
+            slots=result.slots,
+        )
 
     def route_after_intent(self, state: AgentState) -> str:
         if state.get("intent") in {

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.intent_classifier import IntentClassificationError
 from app.agent.local_agent import LocalAgentService
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
@@ -248,7 +249,7 @@ async def local_chat(
             session=session,
             payload=payload,
         )
-    except DeepSeekProviderError as exc:
+    except (DeepSeekProviderError, IntentClassificationError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return LocalChatResponse(
         content=result.content,
@@ -298,7 +299,7 @@ async def _chat_with_optional_database(
                     },
                 )
             return user_id, result
-    except DeepSeekProviderError:
+    except (DeepSeekProviderError, IntentClassificationError):
         raise
     except Exception as exc:
         if session is None:
