@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
 EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 EASTMONEY_FIELDS = "f43,f57,f58,f59,f60,f86,f107,f169,f170"
-EASTMONEY_BOARD_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+# The delayed host is more stable from cloud servers for board rankings.
+EASTMONEY_BOARD_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
 EASTMONEY_BOARD_FIELDS = "f12,f14,f2,f3,f62"
 EASTMONEY_HEADERS = {
     "User-Agent": "Mozilla/5.0",
