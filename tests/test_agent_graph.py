@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from app.agent.graph import LifeAgentGraph
 from app.services.llm.types import LLMResponse
-from app.services.markets import MarketQuote, MarketQuoteResult
+from app.services.markets import MarketHotspot, MarketQuote, MarketQuoteResult
 
 
 class FakeLLM:
@@ -26,6 +26,7 @@ class FakeLLM:
                 or "证券" in user_message
                 or "AAPL" in user_message
                 or "指数" in user_message
+                or "板块" in user_message
             ):
                 intent = "stock_query"
             if user_message.strip() == "用户消息：":
@@ -109,6 +110,22 @@ class FakeBriefingService:
 
 class FakeMarketService:
     async def query_from_text(self, text: str):
+        if "板块" in text:
+            return MarketQuoteResult(
+                status="success",
+                message="热门板块查询成功。",
+                quotes=[],
+                hotspots=[
+                    MarketHotspot(
+                        board_type="行业板块",
+                        code="BK0001",
+                        name="半导体",
+                        price=Decimal("1000"),
+                        change_percent=Decimal("3.21"),
+                        main_net_inflow=Decimal("123456789"),
+                    )
+                ],
+            )
         return MarketQuoteResult(
             status="success",
             message="证券基础信息查询成功。",
@@ -190,6 +207,19 @@ async def test_agent_graph_routes_stock_query_with_direct_response() -> None:
     assert result["provider"] == "local"
     assert "上证指数" in result["final_response"]
     assert "确认" not in result["final_response"]
+
+
+async def test_agent_graph_routes_market_hotspots_with_direct_response() -> None:
+    graph = LifeAgentGraph(FakeLLM(), market_service=FakeMarketService())
+
+    result = await graph.ainvoke({"raw_message": "那今天的热门板块是哪些", "user_id": 1})
+
+    assert result["intent"] == "stock_query"
+    assert result["tool_result"]["tool"] == "stock_query"
+    assert result["tool_result"]["status"] == "success"
+    assert result["provider"] == "local"
+    assert "今日热门板块" in result["final_response"]
+    assert "半导体" in result["final_response"]
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:

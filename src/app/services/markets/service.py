@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
 EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 EASTMONEY_FIELDS = "f43,f57,f58,f59,f60,f86,f107,f169,f170"
+EASTMONEY_BOARD_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+EASTMONEY_BOARD_FIELDS = "f12,f14,f2,f3,f62"
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 DEFAULT_TIMEOUT_SECONDS = 8
 KNOWN_SYMBOLS: dict[str, str] = {
@@ -49,10 +51,21 @@ class MarketQuote:
 
 
 @dataclass(frozen=True)
+class MarketHotspot:
+    board_type: str
+    code: str
+    name: str
+    price: Decimal | None
+    change_percent: Decimal | None
+    main_net_inflow: Decimal | None
+
+
+@dataclass(frozen=True)
 class MarketQuoteResult:
     status: str
     message: str
     quotes: list[MarketQuote]
+    hotspots: list[MarketHotspot] | None = None
 
 
 class MarketService:
@@ -63,19 +76,24 @@ class MarketService:
         quote_url: str = SINA_QUOTE_URL,
         fallback_quote_url: str = EASTMONEY_QUOTE_URL,
         second_fallback_quote_url: str = TENCENT_QUOTE_URL,
+        board_url: str = EASTMONEY_BOARD_URL,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.quote_url = quote_url
         self.fallback_quote_url = fallback_quote_url
         self.second_fallback_quote_url = second_fallback_quote_url
+        self.board_url = board_url
 
     async def query_from_text(self, text: str) -> MarketQuoteResult:
+        if is_hotspot_query(text):
+            return await self.query_hotspots()
         symbols = extract_market_symbols(text)
         if not symbols:
             return MarketQuoteResult(
                 status="needs_clarification",
                 message="请告诉我要查询的股票代码或名称。",
                 quotes=[],
+                hotspots=None,
             )
         try:
             quotes = await self.fetch_quotes(symbols)
@@ -84,14 +102,55 @@ class MarketService:
                 status="unavailable",
                 message=f"证券行情暂时获取失败：{exc}",
                 quotes=[],
+                hotspots=None,
             )
         if not quotes:
             return MarketQuoteResult(
                 status="not_found",
                 message="没有查到对应的股票基础信息。",
                 quotes=[],
+                hotspots=None,
             )
-        return MarketQuoteResult(status="success", message="证券基础信息查询成功。", quotes=quotes)
+        return MarketQuoteResult(
+            status="success",
+            message="证券基础信息查询成功。",
+            quotes=quotes,
+            hotspots=None,
+        )
+
+    async def query_hotspots(self, *, limit: int = 5) -> MarketQuoteResult:
+        try:
+            industry = await self._fetch_eastmoney_boards(
+                board_type="行业板块",
+                fs="m:90+t:2",
+                limit=limit,
+            )
+            concept = await self._fetch_eastmoney_boards(
+                board_type="概念板块",
+                fs="m:90+t:3",
+                limit=limit,
+            )
+        except MarketQuoteFetchError as exc:
+            return MarketQuoteResult(
+                status="unavailable",
+                message=f"热门板块暂时获取失败：{exc}",
+                quotes=[],
+                hotspots=[],
+            )
+        hotspots = industry + concept
+        if not hotspots:
+            return MarketQuoteResult(
+                status="not_found",
+                message="没有查到今日热门板块。",
+                quotes=[],
+                hotspots=[],
+            )
+        return MarketQuoteResult(
+            status="success",
+            message="热门板块查询成功。",
+            quotes=[],
+            hotspots=hotspots,
+        )
 
     async def fetch_quotes(self, symbols: list[str]) -> list[MarketQuote]:
         # Sina is the primary source; Eastmoney is a fallback for servers blocked by Sina.
@@ -144,6 +203,30 @@ class MarketService:
             self.timeout_seconds,
         )
         return _parse_tencent_quotes(payload)
+
+    async def _fetch_eastmoney_boards(
+        self,
+        *,
+        board_type: str,
+        fs: str,
+        limit: int,
+    ) -> list[MarketHotspot]:
+        payload = await asyncio.to_thread(
+            _fetch_eastmoney_board_json,
+            self.board_url,
+            fs,
+            limit,
+            self.timeout_seconds,
+        )
+        return _parse_eastmoney_boards(payload, board_type=board_type)
+
+
+def is_hotspot_query(text: str) -> bool:
+    normalized = text.strip()
+    return any(
+        keyword in normalized
+        for keyword in ("热门板块", "热点板块", "强势板块", "板块热点", "板块排行")
+    )
 
 
 def extract_market_symbols(text: str) -> list[str]:
@@ -356,6 +439,31 @@ def _parse_eastmoney_quote(
     )
 
 
+def _parse_eastmoney_boards(
+    payload: dict[str, Any],
+    *,
+    board_type: str,
+) -> list[MarketHotspot]:
+    rows = payload.get("data", {}).get("diff") or []
+    items: list[MarketHotspot] = []
+    for row in rows:
+        code = str(row.get("f12") or "")
+        name = str(row.get("f14") or "")
+        if not code or not name:
+            continue
+        items.append(
+            MarketHotspot(
+                board_type=board_type,
+                code=code,
+                name=name,
+                price=_decimal_or_none(row.get("f2")),
+                change_percent=_decimal_or_none(row.get("f3")),
+                main_net_inflow=_decimal_or_none(row.get("f62")),
+            )
+        )
+    return items
+
+
 def _decimal_or_none(value: Any) -> Decimal | None:
     if value is None:
         return None
@@ -494,6 +602,27 @@ def _fetch_sina_text(url: str, symbols: list[str], timeout_seconds: int) -> str:
 def _fetch_eastmoney_json(url: str, secid: str, timeout_seconds: int) -> dict[str, Any]:
     request_url = f"{url}?secid={secid}&fields={EASTMONEY_FIELDS}"
     request = Request(request_url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise MarketQuoteFetchError(exc.__class__.__name__) from exc
+
+
+def _fetch_eastmoney_board_json(
+    url: str,
+    fs: str,
+    limit: int,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    request_url = (
+        f"{url}?pn=1&pz={limit}&po=1&np=1&fltt=2&invt=2&fid=f3"
+        f"&fs={fs}&fields={EASTMONEY_BOARD_FIELDS}"
+    )
+    request = Request(
+        request_url,
+        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
+    )
     try:
         with urlopen(request, timeout=timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))

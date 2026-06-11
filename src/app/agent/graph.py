@@ -331,12 +331,15 @@ def _direct_tool_response(state: AgentState) -> str | None:
         return None
     status = tool_result.get("status")
     if status == "success":
+        hotspots = tool_result.get("hotspots") or []
+        if hotspots:
+            return _format_market_hotspots(hotspots)
         items = tool_result.get("items") or []
         if not items:
             return "没有查到对应的证券行情。"
         return "\n".join(_format_market_quote(item) for item in items)
     if status == "needs_clarification":
-        return "请告诉我要查询的股票、指数名称或代码。"
+        return "请告诉我要查询的股票、指数名称或代码；如果想看市场概览，也可以问“今天热门板块”。"
     if status == "not_found":
         return "没有查到对应的证券基础信息，请换一个更明确的名称或代码。"
     if status == "unavailable":
@@ -357,6 +360,38 @@ def _format_market_quote(item: dict[str, Any]) -> str:
         f"{name}（{symbol}，{market}）当前价格 {price} {currency}，"
         f"涨跌 {change}，涨跌幅 {change_percent}。更新时间：{exchange_time}。"
     )
+
+
+def _format_market_hotspots(items: list[dict[str, Any]]) -> str:
+    industry = [item for item in items if item.get("board_type") == "行业板块"]
+    concept = [item for item in items if item.get("board_type") == "概念板块"]
+    lines = ["今日热门板块："]
+    if industry:
+        lines.append("行业板块：" + "；".join(_format_hotspot_item(item) for item in industry))
+    if concept:
+        lines.append("概念板块：" + "；".join(_format_hotspot_item(item) for item in concept))
+    return "\n".join(lines)
+
+
+def _format_hotspot_item(item: dict[str, Any]) -> str:
+    name = item.get("name") or "-"
+    change_percent = _format_signed(item.get("change_percent"), suffix="%")
+    inflow = _format_money(item.get("main_net_inflow"))
+    return f"{name} {change_percent}，主力净流入 {inflow}"
+
+
+def _format_money(value: Any) -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if abs(amount) >= 100000000:
+        return f"{amount / 100000000:.2f} 亿"
+    if abs(amount) >= 10000:
+        return f"{amount / 10000:.2f} 万"
+    return f"{amount:.2f}"
 
 
 def _format_signed(value: Any, *, suffix: str = "") -> str:
@@ -575,6 +610,21 @@ def _market_quote_tool_result(result) -> dict[str, Any]:
                 "exchange_time": item.exchange_time,
             }
             for item in result.quotes
+        ],
+        "hotspots": [
+            {
+                "board_type": item.board_type,
+                "code": item.code,
+                "name": item.name,
+                "price": str(item.price) if item.price is not None else None,
+                "change_percent": (
+                    str(item.change_percent) if item.change_percent is not None else None
+                ),
+                "main_net_inflow": (
+                    str(item.main_net_inflow) if item.main_net_inflow is not None else None
+                ),
+            }
+            for item in result.hotspots or []
         ],
     }
 
