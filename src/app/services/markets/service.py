@@ -1,10 +1,12 @@
 import asyncio
 import json
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -13,6 +15,12 @@ EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 EASTMONEY_FIELDS = "f43,f57,f58,f59,f60,f86,f107,f169,f170"
 EASTMONEY_BOARD_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 EASTMONEY_BOARD_FIELDS = "f12,f14,f2,f3,f62"
+EASTMONEY_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json,text/plain,*/*",
+    "Referer": "https://quote.eastmoney.com/center/boardlist.html",
+    "Connection": "close",
+}
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 DEFAULT_TIMEOUT_SECONDS = 8
 KNOWN_SYMBOLS: dict[str, str] = {
@@ -600,13 +608,8 @@ def _fetch_sina_text(url: str, symbols: list[str], timeout_seconds: int) -> str:
 
 
 def _fetch_eastmoney_json(url: str, secid: str, timeout_seconds: int) -> dict[str, Any]:
-    request_url = f"{url}?secid={secid}&fields={EASTMONEY_FIELDS}"
-    request = Request(request_url, headers={"User-Agent": "Mozilla/5.0"})
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        raise MarketQuoteFetchError(exc.__class__.__name__) from exc
+    query = urlencode({"secid": secid, "fields": EASTMONEY_FIELDS})
+    return _fetch_eastmoney_json_with_retries(f"{url}?{query}", timeout_seconds)
 
 
 def _fetch_eastmoney_board_json(
@@ -615,19 +618,41 @@ def _fetch_eastmoney_board_json(
     limit: int,
     timeout_seconds: int,
 ) -> dict[str, Any]:
-    request_url = (
-        f"{url}?pn=1&pz={limit}&po=1&np=1&fltt=2&invt=2&fid=f3"
-        f"&fs={fs}&fields={EASTMONEY_BOARD_FIELDS}"
+    query = urlencode(
+        {
+            "pn": 1,
+            "pz": limit,
+            "po": 1,
+            "np": 1,
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f3",
+            "fs": fs,
+            "fields": EASTMONEY_BOARD_FIELDS,
+        }
     )
-    request = Request(
-        request_url,
-        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"},
-    )
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        raise MarketQuoteFetchError(exc.__class__.__name__) from exc
+    return _fetch_eastmoney_json_with_retries(f"{url}?{query}", timeout_seconds)
+
+
+def _fetch_eastmoney_json_with_retries(
+    request_url: str,
+    timeout_seconds: int,
+    *,
+    attempts: int = 3,
+) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        request = Request(request_url, headers=EASTMONEY_HEADERS)
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            # Eastmoney may close idle server-side connections; retry keeps queries stable.
+            last_error = exc
+            if attempt < attempts - 1:
+                time.sleep(0.3)
+    error_name = last_error.__class__.__name__ if last_error is not None else "unknown"
+    raise MarketQuoteFetchError(error_name) from last_error
 
 
 def _fetch_tencent_text(url: str, symbols: list[str], timeout_seconds: int) -> str:

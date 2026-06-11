@@ -32,7 +32,7 @@ INTENT_CLASSIFIER_PROMPT = """你是生活管家 Agent 的意图路由器。
 - complete_reminder：完成待办事项
 - delete_reminder：删除、取消待办事项
 - briefing：资讯、新闻、天气、早报、简报预览或订阅
-- stock_query：查询股票、指数、证券市场行情或某只股票的基础信息
+- stock_query：查询股票、指数、证券市场行情、热门板块、行业板块、概念板块或某只股票的基础信息
 - create_life_record：创建备忘录，包括记账、收入、体重、运动、睡眠、喝水、普通备忘
 - query_life_record：查询、统计备忘录或消费备忘
 - memory_update：要求你记住偏好、个人信息、长期习惯
