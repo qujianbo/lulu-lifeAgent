@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
 EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
@@ -394,7 +395,7 @@ def _change_percent(
 def _datetime_to_iso(date_text: str, time_text: str, fmt: str) -> str | None:
     try:
         parsed = datetime.strptime(f"{date_text} {time_text}".strip(), fmt)
-        return parsed.replace(tzinfo=UTC).isoformat()
+        return parsed.replace(tzinfo=ZoneInfo("Asia/Shanghai")).isoformat()
     except (TypeError, ValueError):
         return None
 
@@ -466,7 +467,8 @@ def _timestamp_to_iso(value: Any) -> str | None:
 def _parse_tencent_datetime(value: str) -> str | None:
     for fmt in ("%Y%m%d%H%M%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(value, fmt).replace(tzinfo=UTC).isoformat()
+            parsed = datetime.strptime(value, fmt)
+            return parsed.replace(tzinfo=ZoneInfo("Asia/Shanghai")).isoformat()
         except ValueError:
             continue
     return value or None
