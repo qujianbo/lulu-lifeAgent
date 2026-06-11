@@ -1,4 +1,6 @@
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, StateGraph
 
@@ -350,7 +352,7 @@ def _format_market_quote(item: dict[str, Any]) -> str:
     price = item.get("price") or "-"
     change = _format_signed(item.get("change"))
     change_percent = _format_signed(item.get("change_percent"), suffix="%")
-    exchange_time = item.get("exchange_time") or "未知"
+    exchange_time = _format_exchange_time(item.get("exchange_time"))
     return (
         f"{name}（{symbol}，{market}）当前价格 {price} {currency}，"
         f"涨跌 {change}，涨跌幅 {change_percent}。更新时间：{exchange_time}。"
@@ -364,6 +366,19 @@ def _format_signed(value: Any, *, suffix: str = "") -> str:
     if text.startswith("-"):
         return f"{text}{suffix}"
     return f"+{text}{suffix}"
+
+
+def _format_exchange_time(value: Any) -> str:
+    if not value:
+        return "未知"
+    text = str(value)
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    return parsed.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _extract_reminder_slots(message: str) -> dict[str, Any]:
