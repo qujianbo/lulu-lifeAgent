@@ -13,6 +13,15 @@ EASTMONEY_FIELDS = "f43,f57,f58,f59,f60,f86,f107,f169,f170"
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 DEFAULT_TIMEOUT_SECONDS = 8
 KNOWN_SYMBOLS: dict[str, str] = {
+    "上证大盘指数": "000001.SS",
+    "上证大盘": "000001.SS",
+    "上证指数": "000001.SS",
+    "上证综指": "000001.SS",
+    "上证": "000001.SS",
+    "深证成指": "399001.SZ",
+    "深成指": "399001.SZ",
+    "创业板指": "399006.SZ",
+    "沪深300": "000300.SS",
     "苹果": "AAPL",
     "特斯拉": "TSLA",
     "英伟达": "NVDA",
@@ -159,13 +168,15 @@ def _extract_prefixed_symbols(text: str) -> list[str]:
 def _extract_plain_codes(text: str) -> list[str]:
     symbols: list[str] = []
     for raw in re.findall(r"(?<!\d)(\d{5,6})(?!\d)", text):
-        symbols.append(_normalize_symbol(raw))
+        symbols.append(_normalize_symbol(raw, context=text))
     return symbols
 
 
-def _normalize_symbol(raw: str) -> str:
+def _normalize_symbol(raw: str, *, context: str = "") -> str:
     symbol = raw.strip().upper()
     if re.fullmatch(r"\d{6}", symbol):
+        if symbol == "000001" and any(keyword in context for keyword in ("上证", "沪指")):
+            return f"{symbol}.SS"
         if symbol.startswith(("6", "9")):
             return f"{symbol}.SS"
         return f"{symbol}.SZ"

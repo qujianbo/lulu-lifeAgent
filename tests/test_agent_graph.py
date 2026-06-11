@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 from app.agent.graph import LifeAgentGraph
 from app.services.llm.types import LLMResponse
@@ -20,7 +21,12 @@ class FakeLLM:
                 intent = "create_life_record"
             if "科技新闻" in user_message:
                 intent = "briefing"
-            if "股票" in user_message or "证券" in user_message or "AAPL" in user_message:
+            if (
+                "股票" in user_message
+                or "证券" in user_message
+                or "AAPL" in user_message
+                or "指数" in user_message
+            ):
                 intent = "stock_query"
             if user_message.strip() == "用户消息：":
                 intent = "unknown"
@@ -108,14 +114,14 @@ class FakeMarketService:
             message="证券基础信息查询成功。",
             quotes=[
                 MarketQuote(
-                    symbol="AAPL",
-                    name="Apple Inc.",
-                    market="NasdaqGS",
-                    currency="USD",
-                    price=None,
-                    change=None,
-                    change_percent=None,
-                    exchange_time=None,
+                    symbol="000001.SS",
+                    name="上证指数",
+                    market="上交所",
+                    currency="CNY",
+                    price=Decimal("3888.88"),
+                    change=Decimal("12.34"),
+                    change_percent=Decimal("0.32"),
+                    exchange_time="2026-06-11T14:30:00+00:00",
                 )
             ],
         )
@@ -173,14 +179,17 @@ async def test_agent_graph_routes_briefing() -> None:
     assert result["tool_result"]["status"] == "preview"
 
 
-async def test_agent_graph_routes_stock_query() -> None:
+async def test_agent_graph_routes_stock_query_with_direct_response() -> None:
     graph = LifeAgentGraph(FakeLLM(), market_service=FakeMarketService())
 
-    result = await graph.ainvoke({"raw_message": "查一下 AAPL 股票", "user_id": 1})
+    result = await graph.ainvoke({"raw_message": "查一下上证指数", "user_id": 1})
 
     assert result["intent"] == "stock_query"
     assert result["tool_result"]["tool"] == "stock_query"
     assert result["tool_result"]["status"] == "success"
+    assert result["provider"] == "local"
+    assert "上证指数" in result["final_response"]
+    assert "确认" not in result["final_response"]
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:

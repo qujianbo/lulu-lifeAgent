@@ -279,6 +279,16 @@ class LifeAgentGraph:
                 latency_ms=0,
             )
 
+        direct_response = _direct_tool_response(state)
+        if direct_response is not None:
+            return AgentState(
+                final_response=direct_response,
+                intent=intent,
+                model="none",
+                provider="local",
+                latency_ms=0,
+            )
+
         response = await self.llm.chat(
             [
                 LLMMessage(role="system", content=SYSTEM_PROMPT),
@@ -311,6 +321,49 @@ def _build_user_prompt(state: AgentState) -> str:
         f"工具结果：{tool_result}\n"
         "请给用户一个自然、简洁的回复。"
     )
+
+
+def _direct_tool_response(state: AgentState) -> str | None:
+    tool_result = state.get("tool_result") or {}
+    if tool_result.get("tool") != "stock_query":
+        return None
+    status = tool_result.get("status")
+    if status == "success":
+        items = tool_result.get("items") or []
+        if not items:
+            return "没有查到对应的证券行情。"
+        return "\n".join(_format_market_quote(item) for item in items)
+    if status == "needs_clarification":
+        return "请告诉我要查询的股票、指数名称或代码。"
+    if status == "not_found":
+        return "没有查到对应的证券基础信息，请换一个更明确的名称或代码。"
+    if status == "unavailable":
+        return "证券行情源暂时不可用，请稍后再试。"
+    return None
+
+
+def _format_market_quote(item: dict[str, Any]) -> str:
+    name = item.get("name") or "证券"
+    symbol = item.get("symbol") or "-"
+    market = item.get("market") or "市场"
+    currency = item.get("currency") or ""
+    price = item.get("price") or "-"
+    change = _format_signed(item.get("change"))
+    change_percent = _format_signed(item.get("change_percent"), suffix="%")
+    exchange_time = item.get("exchange_time") or "未知"
+    return (
+        f"{name}（{symbol}，{market}）当前价格 {price} {currency}，"
+        f"涨跌 {change}，涨跌幅 {change_percent}。更新时间：{exchange_time}。"
+    )
+
+
+def _format_signed(value: Any, *, suffix: str = "") -> str:
+    if value in (None, ""):
+        return "-"
+    text = str(value)
+    if text.startswith("-"):
+        return f"{text}{suffix}"
+    return f"+{text}{suffix}"
 
 
 def _extract_reminder_slots(message: str) -> dict[str, Any]:

@@ -275,15 +275,24 @@ async def _chat_with_optional_database(
     try:
         async with _session_transaction(session):
             user_id = await _resolve_debug_user_id(session=session, user_id=payload.user_id)
+            effective_message = payload.message
+            if session is not None and _is_confirmation_message(payload.message):
+                effective_message = await _resolve_confirmation_message(
+                    session=session,
+                    user_id=user_id,
+                )
             if session is not None:
                 await MessageLogRepository(session).create(
                     direction="in",
                     message_type="text",
                     user_id=user_id,
                     content=payload.message,
-                    raw_payload={"source": "local_debug"},
+                    raw_payload={
+                        "source": "local_debug",
+                        "effective_message": effective_message,
+                    },
                 )
-            result = await service.chat(payload.message, user_id=user_id)
+            result = await service.chat(effective_message, user_id=user_id)
             if session is not None:
                 tool_name, tool_status = _tool_log_fields(result.tool_result)
                 await MessageLogRepository(session).create(
@@ -759,6 +768,21 @@ def _tool_log_fields(tool_result: dict[str, Any] | None) -> tuple[str | None, st
     if not tool_result:
         return None, None
     return tool_result.get("tool"), tool_result.get("status")
+
+
+def _is_confirmation_message(message: str) -> bool:
+    return message.strip() in {"确认", "对", "是", "是的", "好的", "没错", "可以"}
+
+
+async def _resolve_confirmation_message(*, session: AsyncSession, user_id: int | None) -> str:
+    logs = await MessageLogRepository(session).list_recent(user_id=user_id, limit=10)
+    for item in logs:
+        if item.direction != "in" or not item.content:
+            continue
+        if _is_confirmation_message(item.content):
+            continue
+        return item.content
+    return "确认"
 
 
 async def _count(session: AsyncSession, query) -> int:

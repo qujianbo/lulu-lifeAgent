@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.api.local import _is_confirmation_message
 from app.config import Settings, get_settings
 from app.main import app
 from app.services.llm.deepseek import DeepSeekProvider
@@ -181,3 +182,9 @@ def test_local_briefing_preview_handles_missing_sources() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "no_sources"
+
+
+def test_confirmation_message_detection() -> None:
+    assert _is_confirmation_message("确认")
+    assert _is_confirmation_message("好的")
+    assert not _is_confirmation_message("确认查上证指数")
