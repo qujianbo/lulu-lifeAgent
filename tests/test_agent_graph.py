@@ -7,6 +7,7 @@ from app.services.briefing.rss import BriefingArticle
 from app.services.commodities import CommodityQuote, CommodityQuoteResult
 from app.services.llm.types import LLMResponse
 from app.services.markets import MarketHotspot, MarketQuote, MarketQuoteResult
+from app.services.web_search.service import WebSearchItem, WebSearchResult
 
 
 class FakeLLM:
@@ -101,6 +102,13 @@ class FakeLLM:
                     tool_name="market_quote",
                     arguments={"query": user_message, "market": "auto"},
                     domain="market",
+                )
+            elif "搜索" in user_message or "查资料" in user_message:
+                decision.update(
+                    action="call_tool",
+                    tool_name="web_search",
+                    arguments={"query": user_message, "limit": 3},
+                    domain="web",
                 )
             return LLMResponse(
                 content=json.dumps(decision, ensure_ascii=False),
@@ -215,6 +223,23 @@ class FakeCommodityService:
                     unit="美元/盎司",
                     exchange="COMEX",
                     exchange_time="2026-06-12T01:35:00-04:00",
+                )
+            ],
+        )
+
+
+class FakeWebSearchService:
+    async def search(self, query: str, *, limit: int = 5):
+        return WebSearchResult(
+            status="success",
+            message="搜索成功。",
+            query=query,
+            items=[
+                WebSearchItem(
+                    title="测试搜索结果",
+                    link="https://example.com/search-result",
+                    snippet="这是一条用于验证 web_search 工具链路的摘要。",
+                    source="example.com",
                 )
             ],
         )
@@ -401,6 +426,18 @@ async def test_agent_graph_passes_raw_commodity_message_to_tool() -> None:
     assert result["planner"]["arguments"] == {"query": "黄金"}
     assert service.last_query == "黄金多少钱一克"
     assert result["tool_result"]["status"] == "success"
+
+
+async def test_agent_graph_routes_external_question_to_web_search() -> None:
+    graph = LifeAgentGraph(FakeLLM(), web_search_service=FakeWebSearchService())
+
+    result = await graph.ainvoke({"raw_message": "搜索一下 LangGraph 最新资料", "user_id": 1})
+
+    assert result["intent"] == "web_search"
+    assert result["planner"]["tool_name"] == "web_search"
+    assert result["tool_result"]["tool"] == "web_search"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["items"][0]["link"] == "https://example.com/search-result"
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:

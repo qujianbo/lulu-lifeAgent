@@ -18,6 +18,7 @@ from app.services.llm.types import LLMMessage
 from app.services.markets import MarketService
 from app.services.memory import MemoryService, format_memories_for_prompt
 from app.services.reminders.service import ReminderService
+from app.services.web_search import WebSearchService
 
 SYSTEM_PROMPT = """你是露露生活管家 Agent。
 当前处于后端联调阶段，能力包括日常问答、待办事项、备忘录、证券基础信息和资讯偏好沟通。
@@ -35,6 +36,7 @@ class LifeAgentGraph:
         briefing_service: BriefingService | None = None,
         market_service: MarketService | None = None,
         commodity_service: CommodityService | None = None,
+        web_search_service: WebSearchService | None = None,
     ) -> None:
         self.llm = llm
         self.reminder_service = reminder_service
@@ -43,6 +45,7 @@ class LifeAgentGraph:
         self.briefing_service = briefing_service
         self.market_service = market_service
         self.commodity_service = commodity_service
+        self.web_search_service = web_search_service
         self.tool_registry = build_tool_registry(
             reminder_service=reminder_service,
             memory_service=memory_service,
@@ -50,6 +53,7 @@ class LifeAgentGraph:
             briefing_service=briefing_service,
             market_service=market_service,
             commodity_service=commodity_service,
+            web_search_service=web_search_service,
         )
         self.planner_service = ToolCallingPlanner(llm, self.tool_registry)
         self.graph = self._build_graph()
@@ -217,6 +221,7 @@ def _build_user_prompt(state: AgentState) -> str:
         f"长期记忆：\n{memories}\n"
         f"工具结果：{tool_result}\n"
         "请给用户一个自然、简洁的回复。不能添加工具结果之外的事实。"
+        "如果使用了 web_search 结果，请基于摘要回答，并在末尾列出 1-3 个来源链接。"
     )
 
 
@@ -232,6 +237,8 @@ def _direct_tool_response(state: AgentState) -> str | None:
     tool_result = state.get("tool_result") or {}
     if tool_result.get("tool") in {"news_tech_ai", "news_commodities"}:
         return _format_news_items(tool_result)
+    if tool_result.get("tool") == "web_search" and tool_result.get("status") != "success":
+        return tool_result.get("message") or "暂时无法完成网页搜索。"
     if tool_result.get("tool") == "commodity_quote":
         return _format_commodity_quotes(tool_result)
     if tool_result.get("tool") not in {"market_overview", "market_quote", "market_hotspots"}:

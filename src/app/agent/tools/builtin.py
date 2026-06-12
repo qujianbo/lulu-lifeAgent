@@ -12,6 +12,7 @@ from app.services.life_records.service import infer_record_type_for_query
 from app.services.markets import MarketService
 from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
+from app.services.web_search import WebSearchService
 
 MarketName = Literal["A股", "港股", "美股", "auto"]
 TECH_AI_RSS_URLS = [
@@ -70,6 +71,11 @@ class NewsArgs(BaseModel):
     limit: int = Field(default=5, ge=1, le=10)
 
 
+class WebSearchArgs(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    limit: int = Field(default=5, ge=1, le=10)
+
+
 def build_tool_registry(
     *,
     reminder_service: ReminderService | None = None,
@@ -78,9 +84,11 @@ def build_tool_registry(
     briefing_service: BriefingService | None = None,
     market_service: MarketService | None = None,
     commodity_service: CommodityService | None = None,
+    web_search_service: WebSearchService | None = None,
 ) -> ToolRegistry:
     market = market_service or MarketService()
     commodity = commodity_service or CommodityService()
+    web_search = web_search_service or WebSearchService()
     tools = [
         AgentTool(
             name="market_overview",
@@ -178,6 +186,15 @@ def build_tool_registry(
             args_model=NewsArgs,
             handler=_news_commodities,
         ),
+        AgentTool(
+            name="web_search",
+            description=(
+                "通用网页搜索兜底工具。用户询问当前事实、最新信息、未覆盖领域、"
+                "百科知识、人物机构、产品服务或需要外部资料的问题时使用。"
+            ),
+            args_model=WebSearchArgs,
+            handler=lambda args, ctx: _web_search(web_search, args, ctx),
+        ),
     ]
     return ToolRegistry(tools)
 
@@ -237,6 +254,31 @@ async def _commodity_quote(
         ],
     }
     return ToolResult("commodity_quote", _tool_status(result.status), result.message, data)
+
+
+async def _web_search(
+    service: WebSearchService,
+    args: BaseModel,
+    ctx: ToolContext,
+) -> ToolResult:
+    parsed = args if isinstance(args, WebSearchArgs) else WebSearchArgs.model_validate(args)
+    result = await service.search(parsed.query, limit=parsed.limit)
+    data = {
+        "tool": "web_search",
+        "status": result.status,
+        "message": result.message,
+        "query": result.query,
+        "items": [
+            {
+                "title": item.title,
+                "link": item.link,
+                "snippet": item.snippet,
+                "source": item.source,
+            }
+            for item in result.items
+        ],
+    }
+    return ToolResult("web_search", _tool_status(result.status), result.message, data)
 
 
 async def _todo_create(

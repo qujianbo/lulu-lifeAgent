@@ -9,6 +9,7 @@ from app.services.llm.deepseek import DeepSeekProvider
 from app.services.markets import MarketService
 from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
+from app.services.web_search import WebSearchService
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class LocalAgentService:
         briefing_service: BriefingService | None = None,
         market_service: MarketService | None = None,
         commodity_service: CommodityService | None = None,
+        web_search_service: WebSearchService | None = None,
     ) -> None:
         self.graph = LifeAgentGraph(
             llm,
@@ -43,6 +45,7 @@ class LocalAgentService:
             briefing_service=briefing_service,
             market_service=market_service,
             commodity_service=commodity_service,
+            web_search_service=web_search_service,
         )
 
     async def chat(self, user_message: str, *, user_id: int | None = None) -> LocalAgentResult:

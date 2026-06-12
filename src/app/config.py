@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     briefing_rss_urls: str | None = None
     briefing_rss_timeout_seconds: int = 8
 
+    google_search_api_key: str | None = None
+    google_search_cx: str | None = None
+    web_search_timeout_seconds: int = 8
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -32,6 +32,7 @@ from app.services.markets import MarketService
 from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
 from app.services.scheduler import SchedulerService
+from app.services.web_search import WebSearchService
 
 router = APIRouter(prefix="/api/local", tags=["local"])
 logger = logging.getLogger(__name__)
@@ -243,6 +244,11 @@ async def local_chat(
     briefing_service = BriefingService(session) if session is not None else None
     market_service = MarketService()
     commodity_service = CommodityService()
+    web_search_service = WebSearchService(
+        google_api_key=settings.google_search_api_key,
+        google_cx=settings.google_search_cx,
+        timeout_seconds=settings.web_search_timeout_seconds,
+    )
     service = LocalAgentService(
         DeepSeekProvider(settings),
         reminder_service=reminder_service,
@@ -251,6 +257,7 @@ async def local_chat(
         briefing_service=briefing_service,
         market_service=market_service,
         commodity_service=commodity_service,
+        web_search_service=web_search_service,
     )
     try:
         user_id, result = await _chat_with_optional_database(
