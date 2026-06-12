@@ -2,6 +2,8 @@ import json
 from decimal import Decimal
 
 from app.agent.graph import LifeAgentGraph
+from app.agent.tools import builtin
+from app.services.briefing.rss import BriefingArticle
 from app.services.llm.types import LLMResponse
 from app.services.markets import MarketHotspot, MarketQuote, MarketQuoteResult
 
@@ -48,7 +50,21 @@ class FakeLLM:
                     arguments={"raw_text": user_message},
                     domain="memo",
                 )
-            if "科技新闻" in user_message:
+            if "科技新闻" in user_message or "AI 资讯" in user_message:
+                decision.update(
+                    action="call_tool",
+                    tool_name="news_tech_ai",
+                    arguments={"limit": 5},
+                    domain="news",
+                )
+            if "大宗商品" in user_message:
+                decision.update(
+                    action="call_tool",
+                    tool_name="news_commodities",
+                    arguments={"limit": 5},
+                    domain="news",
+                )
+            if "订阅" in user_message or "简报" in user_message:
                 decision.update(
                     action="call_tool",
                     tool_name="briefing_preview",
@@ -245,12 +261,46 @@ async def test_agent_graph_routes_life_record_create() -> None:
 async def test_agent_graph_routes_briefing() -> None:
     graph = LifeAgentGraph(FakeLLM(), briefing_service=FakeBriefingService())
 
-    result = await graph.ainvoke({"raw_message": "今天有什么科技新闻", "user_id": 1})
+    result = await graph.ainvoke({"raw_message": "每天早上订阅 AI 简报", "user_id": 1})
 
     assert result["intent"] == "briefing_preview"
     assert result["planner"]["tool_name"] == "briefing_preview"
     assert result["tool_result"]["tool"] == "briefing_preview"
     assert result["tool_result"]["status"] == "preview"
+
+
+async def test_agent_graph_routes_tech_ai_news(monkeypatch) -> None:
+    async def fake_fetch_rss_articles(*, rss_urls, limit=5, timeout_seconds=10):
+        return [BriefingArticle(title="AI 模型更新", link="https://example.com/ai", source="rss")]
+
+    monkeypatch.setattr(builtin, "fetch_rss_articles", fake_fetch_rss_articles)
+    graph = LifeAgentGraph(FakeLLM())
+
+    result = await graph.ainvoke({"raw_message": "今天有什么科技新闻", "user_id": 1})
+
+    assert result["intent"] == "news_tech_ai"
+    assert result["planner"]["tool_name"] == "news_tech_ai"
+    assert result["tool_result"]["tool"] == "news_tech_ai"
+    assert result["tool_result"]["status"] == "success"
+    assert "科技 AI 资讯" in result["final_response"]
+    assert "AI 模型更新" in result["final_response"]
+
+
+async def test_agent_graph_routes_commodity_news(monkeypatch) -> None:
+    async def fake_fetch_rss_articles(*, rss_urls, limit=5, timeout_seconds=10):
+        return [BriefingArticle(title="Oil prices move higher", link=None, source="rss")]
+
+    monkeypatch.setattr(builtin, "fetch_rss_articles", fake_fetch_rss_articles)
+    graph = LifeAgentGraph(FakeLLM())
+
+    result = await graph.ainvoke({"raw_message": "国际大宗商品有什么新闻", "user_id": 1})
+
+    assert result["intent"] == "news_commodities"
+    assert result["planner"]["tool_name"] == "news_commodities"
+    assert result["tool_result"]["tool"] == "news_commodities"
+    assert result["tool_result"]["status"] == "success"
+    assert "国际大宗商品资讯" in result["final_response"]
+    assert "Oil prices" in result["final_response"]
 
 
 async def test_agent_graph_routes_stock_query_with_direct_response() -> None:

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.agent.tools.base import AgentTool, ToolContext, ToolResult
 from app.agent.tools.registry import ToolRegistry
 from app.services.briefing import BriefingService
+from app.services.briefing.rss import fetch_rss_articles
 from app.services.life_records import LifeRecordService
 from app.services.life_records.service import infer_record_type_for_query
 from app.services.markets import MarketService
@@ -12,6 +13,15 @@ from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
 
 MarketName = Literal["A股", "港股", "美股", "auto"]
+TECH_AI_RSS_URLS = [
+    "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+    "https://venturebeat.com/category/ai/feed/",
+    "https://www.artificialintelligence-news.com/feed/",
+]
+COMMODITY_RSS_URLS = [
+    "https://oilprice.com/rss/main",
+    "https://www.mining.com/feed/",
+]
 
 
 class RawTextArgs(BaseModel):
@@ -49,6 +59,10 @@ class MemoryQueryArgs(BaseModel):
 
 class BriefingPreviewArgs(BaseModel):
     raw_text: str = Field(min_length=1, max_length=2000)
+
+
+class NewsArgs(BaseModel):
+    limit: int = Field(default=5, ge=1, le=10)
 
 
 def build_tool_registry(
@@ -138,6 +152,18 @@ def build_tool_registry(
             description="生成资讯、新闻、早报、简报预览，或保存简报订阅偏好。",
             args_model=BriefingPreviewArgs,
             handler=lambda args, ctx: _briefing_preview(briefing_service, args, ctx),
+        ),
+        AgentTool(
+            name="news_tech_ai",
+            description="查询科技、AI、人工智能、模型、芯片、机器人等相关新闻。",
+            args_model=NewsArgs,
+            handler=_news_tech_ai,
+        ),
+        AgentTool(
+            name="news_commodities",
+            description="查询国际大宗商品相关新闻，包括原油、黄金、铜、矿业和能源。",
+            args_model=NewsArgs,
+            handler=_news_commodities,
         ),
     ]
     return ToolRegistry(tools)
@@ -369,6 +395,24 @@ async def _briefing_preview(
     return ToolResult("briefing_preview", _tool_status(result.status), result.message, data)
 
 
+async def _news_tech_ai(args: BaseModel, ctx: ToolContext) -> ToolResult:
+    parsed = args if isinstance(args, NewsArgs) else NewsArgs.model_validate(args)
+    articles = await fetch_rss_articles(rss_urls=TECH_AI_RSS_URLS, limit=parsed.limit)
+    data = _news_data("news_tech_ai", "科技 AI 资讯获取成功。", articles)
+    status = "success" if articles else "not_found"
+    content = "科技 AI 资讯获取成功。" if articles else "暂时没有获取到科技 AI 资讯。"
+    return ToolResult("news_tech_ai", status, content, data)
+
+
+async def _news_commodities(args: BaseModel, ctx: ToolContext) -> ToolResult:
+    parsed = args if isinstance(args, NewsArgs) else NewsArgs.model_validate(args)
+    articles = await fetch_rss_articles(rss_urls=COMMODITY_RSS_URLS, limit=parsed.limit)
+    data = _news_data("news_commodities", "国际大宗商品资讯获取成功。", articles)
+    status = "success" if articles else "not_found"
+    content = "国际大宗商品资讯获取成功。" if articles else "暂时没有获取到国际大宗商品资讯。"
+    return ToolResult("news_commodities", status, content, data)
+
+
 def _market_result_data(tool_name: str, result) -> dict[str, Any]:
     return {
         "tool": tool_name,
@@ -403,6 +447,22 @@ def _market_result_data(tool_name: str, result) -> dict[str, Any]:
                 ),
             }
             for item in result.hotspots or []
+        ],
+    }
+
+
+def _news_data(tool_name: str, message: str, articles) -> dict[str, Any]:
+    return {
+        "tool": tool_name,
+        "status": "success" if articles else "not_found",
+        "message": message,
+        "items": [
+            {
+                "title": item.title,
+                "link": item.link,
+                "source": item.source,
+            }
+            for item in articles
         ],
     }
 

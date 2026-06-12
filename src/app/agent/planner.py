@@ -27,7 +27,9 @@ PLANNER_SYSTEM_PROMPT = """你是生活管家 Agent 的工具规划器。
 - 待办、提醒、完成、删除待办调用 todo 工具。
 - 记账、体重、运动、睡眠、喝水、备忘调用 memo 工具。
 - 记住、偏好、个人信息、长期习惯调用 memory 工具。
-- 新闻、资讯、早报、简报调用 briefing_preview。
+- 科技、AI、人工智能、模型、芯片、机器人相关新闻调用 news_tech_ai。
+- 国际大宗商品、原油、黄金、铜、矿业、能源相关新闻调用 news_commodities。
+- 早报、简报、订阅资讯偏好调用 briefing_preview。
 - 不要因为用户没有说工具名就追问；能默认就默认。
 - 确实缺少必要信息时才 ask_clarification。
 - 只能选择工具清单中存在的工具。

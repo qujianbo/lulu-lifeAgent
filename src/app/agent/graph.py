@@ -225,6 +225,8 @@ def _intent_from_planner(planner: dict[str, Any]) -> str:
 
 def _direct_tool_response(state: AgentState) -> str | None:
     tool_result = state.get("tool_result") or {}
+    if tool_result.get("tool") in {"news_tech_ai", "news_commodities"}:
+        return _format_news_items(tool_result)
     if tool_result.get("tool") not in {"market_overview", "market_quote", "market_hotspots"}:
         return None
     status = tool_result.get("status")
@@ -245,6 +247,19 @@ def _direct_tool_response(state: AgentState) -> str | None:
     if status in {"unavailable", "failed"}:
         return "证券行情源暂时不可用，请稍后再试。"
     return None
+
+
+def _format_news_items(tool_result: dict[str, Any]) -> str:
+    items = tool_result.get("items") or []
+    if not items:
+        return tool_result.get("message") or "暂时没有获取到相关资讯。"
+    title = "科技 AI 资讯" if tool_result.get("tool") == "news_tech_ai" else "国际大宗商品资讯"
+    lines = [f"{title}："]
+    for index, item in enumerate(items[:5], start=1):
+        link = item.get("link")
+        suffix = f"（{link}）" if link else ""
+        lines.append(f"{index}. {item.get('title') or '-'}{suffix}")
+    return "\n".join(lines)
 
 
 def _format_market_quote(item: dict[str, Any]) -> str:

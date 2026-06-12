@@ -46,6 +46,13 @@ def test_tool_args_model_validates_arguments() -> None:
         MarketQuoteArgs.model_validate({"query": "", "market": "auto"})
 
 
+def test_tool_registry_contains_news_tools() -> None:
+    registry = build_tool_registry()
+
+    assert registry.has("news_tech_ai")
+    assert registry.has("news_commodities")
+
+
 async def test_planner_rejects_unknown_tool_name() -> None:
     registry = build_tool_registry()
     planner = ToolCallingPlanner(FakePlannerLLM("not_a_tool"), registry, max_attempts=1)
