@@ -1,6 +1,6 @@
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 DEFAULT_TIMEOUT_SECONDS = 8
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
 GOLD_API_URL = "https://api.gold-api.com/price"
+TROY_OUNCE_GRAMS = Decimal("31.1034768")
 COMMODITY_ALIASES: dict[str, str] = {
     "金价": "XAU",
     "黄金": "XAU",
@@ -70,7 +71,7 @@ class CommodityService:
                 items=[],
             )
         try:
-            items = await self.fetch_quotes(symbols)
+            items = _apply_requested_unit(await self.fetch_quotes(symbols), text)
         except CommodityFetchError as exc:
             return CommodityQuoteResult(
                 status="unavailable",
@@ -128,6 +129,30 @@ def extract_commodity_symbols(text: str) -> list[str]:
         if name in normalized:
             symbols.append(symbol)
     return list(dict.fromkeys(symbols))[:3]
+
+
+def _apply_requested_unit(items: list[CommodityQuote], text: str) -> list[CommodityQuote]:
+    if not _asks_for_gram_price(text):
+        return items
+    converted: list[CommodityQuote] = []
+    for item in items:
+        # 贵金属行情源按金衡盎司报价，用户问“每克”时在工具层直接换算。
+        if item.symbol in {"XAU", "XAG", "XPT", "XPD"} and item.price is not None:
+            converted.append(
+                replace(
+                    item,
+                    price=(item.price / TROY_OUNCE_GRAMS).quantize(Decimal("0.000001")),
+                    unit="美元/克",
+                )
+            )
+        else:
+            converted.append(item)
+    return converted
+
+
+def _asks_for_gram_price(text: str) -> bool:
+    normalized = text.lower()
+    return any(keyword in normalized for keyword in ("一克", "每克", "克", "/g", " g"))
 
 
 class CommodityFetchError(RuntimeError):

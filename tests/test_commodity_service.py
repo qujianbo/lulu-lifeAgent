@@ -53,3 +53,22 @@ async def test_query_gold_price_with_injected_gold_api(monkeypatch) -> None:
     assert result.status == "success"
     assert result.items[0].symbol == "XAU"
     assert result.items[0].name == "国际黄金现货"
+
+
+async def test_query_gold_price_per_gram(monkeypatch) -> None:
+    def fake_fetch(url: str, symbol: str, timeout_seconds: int) -> dict[str, object]:
+        return {
+            "symbol": symbol,
+            "price": 3110.34768,
+            "currency": "USD",
+            "updatedAt": "2026-06-12T06:00:52Z",
+        }
+
+    monkeypatch.setattr("app.services.commodities.service._fetch_gold_api_quote", fake_fetch)
+    service = CommodityService()
+
+    result = await service.query_from_text("黄金多少钱一克")
+
+    assert result.status == "success"
+    assert result.items[0].price == Decimal("100.000000")
+    assert result.items[0].unit == "美元/克"
