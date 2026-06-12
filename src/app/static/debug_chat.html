@@ -339,6 +339,11 @@
             <div class="meta-row"><span>Model</span><span id="model" class="meta-value">-</span></div>
             <div class="meta-row"><span>Latency</span><span id="latency" class="meta-value">-</span></div>
             <div class="meta-row"><span>User ID</span><span id="user-id" class="meta-value">-</span></div>
+            <label>Planner</label>
+            <pre id="planner-result">null</pre>
+            <label>Tool Trace</label>
+            <pre id="tool-trace">[]</pre>
+            <label>Tool Result</label>
             <pre id="tool-result">null</pre>
             <button id="refresh-memories" class="secondary" type="button">刷新记忆</button>
             <pre id="memories">[]</pre>
@@ -375,6 +380,8 @@
       const modelNode = document.querySelector("#model");
       const latencyNode = document.querySelector("#latency");
       const userIdNode = document.querySelector("#user-id");
+      const plannerNode = document.querySelector("#planner-result");
+      const toolTraceNode = document.querySelector("#tool-trace");
       const toolNode = document.querySelector("#tool-result");
       const memoriesNode = document.querySelector("#memories");
       const lifeRecordsNode = document.querySelector("#life-records");
@@ -476,6 +483,8 @@
         modelNode.textContent = payload.model || "-";
         latencyNode.textContent = payload.latency_ms ? `${payload.latency_ms} ms` : "-";
         userIdNode.textContent = payload.user_id || "-";
+        plannerNode.textContent = JSON.stringify(payload.planner, null, 2);
+        toolTraceNode.textContent = JSON.stringify(payload.tool_trace || [], null, 2);
         toolNode.textContent = JSON.stringify(payload.tool_result, null, 2);
       }
 

@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from app.api.local import _is_confirmation_message
@@ -8,18 +10,27 @@ from app.services.llm.types import LLMResponse
 
 
 async def _fake_chat(self, messages, *args, **kwargs) -> LLMResponse:
-    if "意图路由器" in messages[0].content:
-        intent = (
-            "create_reminder"
-            if "提醒" in messages[-1].content or "待办" in messages[-1].content
-            else "general_qa"
-        )
+    if "工具规划器" in messages[0].content:
+        payload = json.loads(messages[-1].content)
+        user_message = payload["user_message"]
+        decision = {
+            "action": "final_answer",
+            "tool_name": None,
+            "arguments": {},
+            "domain": "general_qa",
+            "confidence": 0.99,
+            "reason": "测试规划",
+            "question": None,
+        }
+        if "提醒" in user_message or "待办" in user_message:
+            decision.update(
+                action="call_tool",
+                tool_name="todo_create",
+                arguments={"raw_text": user_message},
+                domain="todo",
+            )
         return LLMResponse(
-            content=(
-                '{"intent":"'
-                + intent
-                + '","confidence":0.99,"reason":"测试分类","slots":{}}'
-            ),
+            content=json.dumps(decision, ensure_ascii=False),
             model="deepseek-test",
             provider="deepseek",
             latency_ms=12,
@@ -78,9 +89,11 @@ def test_local_chat_returns_agent_response(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["content"] == "后端正常"
-    assert payload["intent"] == "create_reminder"
-    assert payload["tool_result"]["tool"] == "create_reminder"
-    assert payload["tool_result"]["status"] == "dry_run"
+    assert payload["intent"] == "todo_create"
+    assert payload["planner"]["tool_name"] == "todo_create"
+    assert payload["tool_result"]["tool"] == "todo_create"
+    assert payload["tool_result"]["status"] == "failed"
+    assert payload["tool_trace"][0]["tool_name"] == "todo_create"
 
 
 def test_local_api_requires_admin_token_when_configured(monkeypatch) -> None:

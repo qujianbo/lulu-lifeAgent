@@ -8,40 +8,76 @@ from app.services.markets import MarketHotspot, MarketQuote, MarketQuoteResult
 
 class FakeLLM:
     async def chat(self, messages, *args, **kwargs) -> LLMResponse:
-        if "意图路由器" in messages[0].content:
-            user_message = messages[-1].content
-            intent = "general_qa"
+        if "工具规划器" in messages[0].content:
+            payload = json.loads(messages[-1].content)
+            user_message = payload["user_message"]
+            decision = {
+                "action": "final_answer",
+                "tool_name": None,
+                "arguments": {},
+                "domain": "general_qa",
+                "confidence": 0.99,
+                "reason": "测试规划",
+                "question": None,
+            }
             if "提醒" in user_message or "待办" in user_message:
-                intent = "create_reminder"
+                decision.update(
+                    action="call_tool",
+                    tool_name="todo_create",
+                    arguments={"raw_text": user_message},
+                    domain="todo",
+                )
             if "记住" in user_message:
-                intent = "memory_update"
+                decision.update(
+                    action="call_tool",
+                    tool_name="memory_save",
+                    arguments={"raw_text": user_message},
+                    domain="memory",
+                )
             if "忘掉" in user_message:
-                intent = "memory_delete"
+                decision.update(
+                    action="call_tool",
+                    tool_name="memory_delete",
+                    arguments={"raw_text": user_message},
+                    domain="memory",
+                )
             if "记账" in user_message:
-                intent = "create_life_record"
+                decision.update(
+                    action="call_tool",
+                    tool_name="memo_create",
+                    arguments={"raw_text": user_message},
+                    domain="memo",
+                )
             if "科技新闻" in user_message:
-                intent = "briefing"
-            if (
-                "股票" in user_message
-                or "证券" in user_message
-                or "AAPL" in user_message
-                or "指数" in user_message
-                or "板块" in user_message
-                or "市场行情" in user_message
-            ):
-                intent = "stock_query"
-            if user_message.strip() == "用户消息：":
-                intent = "unknown"
+                decision.update(
+                    action="call_tool",
+                    tool_name="briefing_preview",
+                    arguments={"raw_text": user_message},
+                    domain="briefing",
+                )
+            if "市场行情" in user_message:
+                decision.update(
+                    action="call_tool",
+                    tool_name="market_overview",
+                    arguments={"market": "A股", "include_hotspots": True},
+                    domain="market",
+                )
+            elif "板块" in user_message:
+                decision.update(
+                    action="call_tool",
+                    tool_name="market_hotspots",
+                    arguments={"market": "A股", "limit": 5},
+                    domain="market",
+                )
+            elif any(word in user_message for word in ("股票", "证券", "AAPL", "指数")):
+                decision.update(
+                    action="call_tool",
+                    tool_name="market_quote",
+                    arguments={"query": user_message, "market": "auto"},
+                    domain="market",
+                )
             return LLMResponse(
-                content=json.dumps(
-                    {
-                        "intent": intent,
-                        "confidence": 0.99,
-                        "reason": "测试分类",
-                        "slots": {},
-                    },
-                    ensure_ascii=False,
-                ),
+                content=json.dumps(decision, ensure_ascii=False),
                 model="fake-model",
                 provider="fake",
                 latency_ms=1,
@@ -99,6 +135,7 @@ class FakeBriefingService:
         user_id: int,
         text: str,
         memory_topics=None,
+        timezone: str = "Asia/Shanghai",
     ):
         class Result:
             status = "preview"
@@ -111,65 +148,51 @@ class FakeBriefingService:
 
 class FakeMarketService:
     async def query_from_text(self, text: str):
-        if "市场行情" in text:
-            return MarketQuoteResult(
-                status="success",
-                message="市场概览查询成功。",
-                quotes=[
-                    MarketQuote(
-                        symbol="000001.SS",
-                        name="上证指数",
-                        market="上交所",
-                        currency="CNY",
-                        price=Decimal("3888.88"),
-                        change=Decimal("12.34"),
-                        change_percent=Decimal("0.32"),
-                        exchange_time="2026-06-11T14:30:00+00:00",
-                    )
-                ],
-                hotspots=[
-                    MarketHotspot(
-                        board_type="行业板块",
-                        code="BK0001",
-                        name="半导体",
-                        price=Decimal("1000"),
-                        change_percent=Decimal("3.21"),
-                        main_net_inflow=Decimal("123456789"),
-                    )
-                ],
-            )
-        if "板块" in text:
-            return MarketQuoteResult(
-                status="success",
-                message="热门板块查询成功。",
-                quotes=[],
-                hotspots=[
-                    MarketHotspot(
-                        board_type="行业板块",
-                        code="BK0001",
-                        name="半导体",
-                        price=Decimal("1000"),
-                        change_percent=Decimal("3.21"),
-                        main_net_inflow=Decimal("123456789"),
-                    )
-                ],
-            )
         return MarketQuoteResult(
             status="success",
             message="证券基础信息查询成功。",
-            quotes=[
-                MarketQuote(
-                    symbol="000001.SS",
-                    name="上证指数",
-                    market="上交所",
-                    currency="CNY",
-                    price=Decimal("3888.88"),
-                    change=Decimal("12.34"),
-                    change_percent=Decimal("0.32"),
-                    exchange_time="2026-06-11T14:30:00+00:00",
-                )
-            ],
+            quotes=[_fake_quote()],
         )
+
+    async def query_hotspots(self, *, limit: int = 5):
+        return MarketQuoteResult(
+            status="success",
+            message="热门板块查询成功。",
+            quotes=[],
+            hotspots=[_fake_hotspot()],
+        )
+
+    async def query_market_overview(self, *, hotspot_limit: int = 3):
+        return MarketQuoteResult(
+            status="success",
+            message="市场概览查询成功。",
+            quotes=[_fake_quote()],
+            hotspots=[_fake_hotspot()],
+        )
+
+
+def _fake_quote() -> MarketQuote:
+    return MarketQuote(
+        symbol="000001.SS",
+        name="上证指数",
+        market="上交所",
+        currency="CNY",
+        price=Decimal("3888.88"),
+        change=Decimal("12.34"),
+        change_percent=Decimal("0.32"),
+        exchange_time="2026-06-11T14:30:00+00:00",
+    )
+
+
+def _fake_hotspot() -> MarketHotspot:
+    return MarketHotspot(
+        board_type="行业板块",
+        code="BK0001",
+        name="半导体",
+        price=Decimal("1000"),
+        change_percent=Decimal("3.21"),
+        main_net_inflow=Decimal("123456789"),
+    )
 
 
 async def test_agent_graph_routes_create_reminder() -> None:
@@ -177,9 +200,11 @@ async def test_agent_graph_routes_create_reminder() -> None:
 
     result = await graph.ainvoke({"raw_message": "明早 8 点待办：带身份证"})
 
-    assert result["intent"] == "create_reminder"
-    assert result["tool_result"]["tool"] == "create_reminder"
-    assert result["tool_result"]["status"] == "dry_run"
+    assert result["intent"] == "todo_create"
+    assert result["planner"]["tool_name"] == "todo_create"
+    assert result["tool_result"]["tool"] == "todo_create"
+    assert result["tool_result"]["status"] == "failed"
+    assert result["tool_trace"][0]["tool_name"] == "todo_create"
     assert result["final_response"] == "图回复正常"
 
 
@@ -188,8 +213,9 @@ async def test_agent_graph_routes_memory_update() -> None:
 
     result = await graph.ainvoke({"raw_message": "记住我以后资讯更关注 AI 和财经", "user_id": 1})
 
-    assert result["intent"] == "memory_update"
-    assert result["tool_result"]["tool"] == "memory_update"
+    assert result["intent"] == "memory_save"
+    assert result["planner"]["tool_name"] == "memory_save"
+    assert result["tool_result"]["tool"] == "memory_save"
     assert result["tool_result"]["status"] == "saved"
     assert result["final_response"] == "图回复正常"
 
@@ -200,6 +226,7 @@ async def test_agent_graph_routes_memory_delete() -> None:
     result = await graph.ainvoke({"raw_message": "忘掉记忆 #1", "user_id": 1})
 
     assert result["intent"] == "memory_delete"
+    assert result["planner"]["tool_name"] == "memory_delete"
     assert result["tool_result"]["tool"] == "memory_delete"
     assert result["tool_result"]["status"] == "deleted"
 
@@ -209,8 +236,9 @@ async def test_agent_graph_routes_life_record_create() -> None:
 
     result = await graph.ainvoke({"raw_message": "记账 午饭花了 35 元", "user_id": 1})
 
-    assert result["intent"] == "create_life_record"
-    assert result["tool_result"]["tool"] == "create_life_record"
+    assert result["intent"] == "memo_create"
+    assert result["planner"]["tool_name"] == "memo_create"
+    assert result["tool_result"]["tool"] == "memo_create"
     assert result["tool_result"]["status"] == "created"
 
 
@@ -219,8 +247,9 @@ async def test_agent_graph_routes_briefing() -> None:
 
     result = await graph.ainvoke({"raw_message": "今天有什么科技新闻", "user_id": 1})
 
-    assert result["intent"] == "briefing"
-    assert result["tool_result"]["tool"] == "briefing_subscription"
+    assert result["intent"] == "briefing_preview"
+    assert result["planner"]["tool_name"] == "briefing_preview"
+    assert result["tool_result"]["tool"] == "briefing_preview"
     assert result["tool_result"]["status"] == "preview"
 
 
@@ -229,8 +258,9 @@ async def test_agent_graph_routes_stock_query_with_direct_response() -> None:
 
     result = await graph.ainvoke({"raw_message": "查一下上证指数", "user_id": 1})
 
-    assert result["intent"] == "stock_query"
-    assert result["tool_result"]["tool"] == "stock_query"
+    assert result["intent"] == "market_quote"
+    assert result["planner"]["tool_name"] == "market_quote"
+    assert result["tool_result"]["tool"] == "market_quote"
     assert result["tool_result"]["status"] == "success"
     assert result["provider"] == "local"
     assert "上证指数" in result["final_response"]
@@ -242,8 +272,9 @@ async def test_agent_graph_routes_market_hotspots_with_direct_response() -> None
 
     result = await graph.ainvoke({"raw_message": "那今天的热门板块是哪些", "user_id": 1})
 
-    assert result["intent"] == "stock_query"
-    assert result["tool_result"]["tool"] == "stock_query"
+    assert result["intent"] == "market_hotspots"
+    assert result["planner"]["tool_name"] == "market_hotspots"
+    assert result["tool_result"]["tool"] == "market_hotspots"
     assert result["tool_result"]["status"] == "success"
     assert result["provider"] == "local"
     assert "今日热门板块" in result["final_response"]
@@ -255,8 +286,9 @@ async def test_agent_graph_routes_market_overview_with_direct_response() -> None
 
     result = await graph.ainvoke({"raw_message": "今天市场行情如何", "user_id": 1})
 
-    assert result["intent"] == "stock_query"
-    assert result["tool_result"]["tool"] == "stock_query"
+    assert result["intent"] == "market_overview"
+    assert result["planner"]["tool_name"] == "market_overview"
+    assert result["tool_result"]["tool"] == "market_overview"
     assert result["tool_result"]["status"] == "success"
     assert result["provider"] == "local"
     assert "今天市场概览" in result["final_response"]
@@ -270,6 +302,7 @@ async def test_agent_graph_routes_general_qa_without_tool() -> None:
     result = await graph.ainvoke({"raw_message": "怎么安排今天的工作？"})
 
     assert result["intent"] == "general_qa"
+    assert result["planner"]["action"] == "final_answer"
     assert result.get("tool_result") is None
     assert result["final_response"] == "图回复正常"
 

@@ -1,20 +1,6 @@
-from typing import Any, Literal, TypedDict
+from typing import Any, TypedDict
 
-AgentIntent = Literal[
-    "general_qa",
-    "create_reminder",
-    "query_reminder",
-    "complete_reminder",
-    "delete_reminder",
-    "briefing",
-    "stock_query",
-    "create_life_record",
-    "query_life_record",
-    "memory_update",
-    "memory_query",
-    "memory_delete",
-    "unknown",
-]
+AgentIntent = str
 
 
 class AgentState(TypedDict, total=False):
@@ -23,12 +9,14 @@ class AgentState(TypedDict, total=False):
     openid: str | None
     raw_message: str
     sanitized_message: str
-    intent: AgentIntent
+    intent: str
     intent_confidence: float
     intent_reason: str | None
     slots: dict[str, Any]
     context: dict[str, Any]
+    planner: dict[str, Any] | None
     tool_result: dict[str, Any] | None
+    tool_trace: list[dict[str, Any]]
     final_response: str
     model: str
     provider: str

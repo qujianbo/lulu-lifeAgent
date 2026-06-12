@@ -18,6 +18,8 @@ class LocalAgentResult:
     latency_ms: int
     intent: str
     tool_result: dict[str, Any] | None = None
+    planner: dict[str, Any] | None = None
+    tool_trace: list[dict[str, Any]] | None = None
 
 
 class LocalAgentService:
@@ -50,4 +52,6 @@ class LocalAgentService:
             latency_ms=state.get("latency_ms", 0),
             intent=state.get("intent", "unknown"),
             tool_result=state.get("tool_result"),
+            planner=state.get("planner"),
+            tool_trace=state.get("tool_trace") or [],
         )

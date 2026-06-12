@@ -1,14 +1,17 @@
-from datetime import datetime
+from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, StateGraph
 
-from app.agent.intent_classifier import LLMIntentClassifier
+from app.agent.planner import ToolCallingPlanner
+from app.agent.schemas import ToolCallTrace
 from app.agent.state import AgentState
+from app.agent.tools.base import ToolContext
+from app.agent.tools.builtin import build_tool_registry
 from app.services.briefing import BriefingService
 from app.services.life_records import LifeRecordService
-from app.services.life_records.service import infer_record_type_for_query
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMMessage
 from app.services.markets import MarketService
@@ -17,7 +20,7 @@ from app.services.reminders.service import ReminderService
 
 SYSTEM_PROMPT = """你是露露生活管家 Agent。
 当前处于后端联调阶段，能力包括日常问答、待办事项、备忘录、证券基础信息和资讯偏好沟通。
-回答要简洁、可靠；涉及待办事项时必须复述识别到的时间和事项。"""
+回答要简洁、可靠。涉及工具结果时，只能基于工具返回的信息回复，不要编造事实。"""
 
 
 class LifeAgentGraph:
@@ -37,7 +40,14 @@ class LifeAgentGraph:
         self.life_record_service = life_record_service
         self.briefing_service = briefing_service
         self.market_service = market_service
-        self.intent_classifier = LLMIntentClassifier(llm)
+        self.tool_registry = build_tool_registry(
+            reminder_service=reminder_service,
+            memory_service=memory_service,
+            life_record_service=life_record_service,
+            briefing_service=briefing_service,
+            market_service=market_service,
+        )
+        self.planner_service = ToolCallingPlanner(llm, self.tool_registry)
         self.graph = self._build_graph()
 
     async def ainvoke(self, state: AgentState) -> AgentState:
@@ -48,16 +58,16 @@ class LifeAgentGraph:
         graph = StateGraph(AgentState)
         graph.add_node("input_guardrail", self.input_guardrail)
         graph.add_node("context_loader", self.context_loader)
-        graph.add_node("intent_router", self.intent_router)
+        graph.add_node("planner", self.planner)
         graph.add_node("tool_executor", self.tool_executor)
         graph.add_node("response_composer", self.response_composer)
 
         graph.set_entry_point("input_guardrail")
         graph.add_edge("input_guardrail", "context_loader")
-        graph.add_edge("context_loader", "intent_router")
+        graph.add_edge("context_loader", "planner")
         graph.add_conditional_edges(
-            "intent_router",
-            self.route_after_intent,
+            "planner",
+            self.route_after_planner,
             {
                 "tool": "tool_executor",
                 "compose": "response_composer",
@@ -84,191 +94,63 @@ class LifeAgentGraph:
             context["memory_prompt"] = format_memories_for_prompt(memories)
         return AgentState(context=context)
 
-    async def intent_router(self, state: AgentState) -> AgentState:
+    async def planner(self, state: AgentState) -> AgentState:
         message = state.get("sanitized_message", "")
         if not message:
-            return AgentState(intent="unknown", slots={})
-        result = await self.intent_classifier.classify(message)
+            return AgentState(intent="unknown", planner=None, tool_trace=[])
+        decision = await self.planner_service.plan(
+            message=message,
+            context=state.get("context") or {},
+        )
+        planner_payload = decision.model_dump()
         return AgentState(
-            intent=result.intent,
-            intent_confidence=result.confidence,
-            intent_reason=result.reason,
-            slots=result.slots,
+            intent=_intent_from_planner(planner_payload),
+            intent_confidence=decision.confidence,
+            intent_reason=decision.reason,
+            planner=planner_payload,
+            tool_trace=[],
         )
 
-    def route_after_intent(self, state: AgentState) -> str:
-        if state.get("intent") in {
-            "create_reminder",
-            "query_reminder",
-            "complete_reminder",
-            "delete_reminder",
-            "briefing",
-            "stock_query",
-            "create_life_record",
-            "query_life_record",
-            "memory_update",
-            "memory_query",
-            "memory_delete",
-        }:
+    def route_after_planner(self, state: AgentState) -> str:
+        planner = state.get("planner") or {}
+        if planner.get("action") == "call_tool":
             return "tool"
         return "compose"
 
     async def tool_executor(self, state: AgentState) -> AgentState:
-        intent = state.get("intent")
-        message = state.get("sanitized_message", "")
-        if intent == "create_reminder":
-            user_id = state.get("user_id")
-            if self.reminder_service is not None and user_id is not None:
-                result = await self.reminder_service.create_from_text(user_id=user_id, text=message)
-                return AgentState(
-                    slots=_extract_reminder_slots(message),
-                    tool_result=_reminder_create_tool_result(result),
-                )
-            return AgentState(
-                slots=_extract_reminder_slots(message),
-                tool_result={
-                    "tool": "create_reminder",
-                    "status": "dry_run",
-                    "message": "待办事项工具尚未落库，当前只返回识别结果。",
-                },
-            )
-        if intent == "query_reminder":
-            user_id = state.get("user_id")
-            if self.reminder_service is not None and user_id is not None:
-                reminders = await self.reminder_service.list_active(user_id=user_id)
-                return AgentState(tool_result=_reminder_query_tool_result(reminders))
-            return AgentState(
-                tool_result={
-                    "tool": "query_reminder",
-                    "status": "dry_run",
-                    "message": "待办事项查询工具需要数据库连接。",
-                }
-            )
-        if intent == "complete_reminder":
-            user_id = state.get("user_id")
-            if self.reminder_service is not None and user_id is not None:
-                result = await self.reminder_service.complete_from_text(
-                    user_id=user_id,
-                    text=message,
-                )
-                return AgentState(
-                    tool_result=_reminder_mutation_tool_result("complete_reminder", result)
-                )
-            return AgentState(
-                tool_result={
-                    "tool": "complete_reminder",
-                    "status": "dry_run",
-                    "message": "待办事项完成工具需要数据库连接。",
-                }
-            )
-        if intent == "delete_reminder":
-            user_id = state.get("user_id")
-            if self.reminder_service is not None and user_id is not None:
-                result = await self.reminder_service.delete_from_text(user_id=user_id, text=message)
-                return AgentState(
-                    tool_result=_reminder_mutation_tool_result("delete_reminder", result)
-                )
-            return AgentState(
-                tool_result={
-                    "tool": "delete_reminder",
-                    "status": "dry_run",
-                    "message": "待办事项删除工具需要数据库连接。",
-                }
-            )
-        if intent == "briefing":
-            user_id = state.get("user_id")
-            if self.briefing_service is not None and user_id is not None:
-                result = await self.briefing_service.handle_from_text(
-                    user_id=user_id,
-                    text=message,
-                    memory_topics=_memory_topics(state),
-                )
-                return AgentState(tool_result=_briefing_tool_result(result))
-            return AgentState(
-                tool_result={
-                    "tool": "briefing_subscription",
-                    "status": "dry_run",
-                    "message": "资讯订阅将在每日简报阶段接入。",
-                }
-            )
-        if intent == "stock_query":
-            if self.market_service is not None:
-                result = await self.market_service.query_from_text(message)
-                return AgentState(tool_result=_market_quote_tool_result(result))
-            return AgentState(
-                tool_result={
-                    "tool": "stock_query",
-                    "status": "dry_run",
-                    "message": "证券市场查询工具尚未配置。",
-                }
-            )
-        if intent == "create_life_record":
-            user_id = state.get("user_id")
-            if self.life_record_service is not None and user_id is not None:
-                result = await self.life_record_service.create_from_text(
-                    user_id=user_id,
-                    text=message,
-                )
-                return AgentState(tool_result=_life_record_create_tool_result(result))
-            return AgentState(
-                tool_result={
-                    "tool": "create_life_record",
-                    "status": "dry_run",
-                    "message": "备忘录工具需要数据库连接。",
-                }
-            )
-        if intent == "query_life_record":
-            user_id = state.get("user_id")
-            if self.life_record_service is not None and user_id is not None:
-                records = await self.life_record_service.list_active(
-                    user_id=user_id,
-                    record_type=infer_record_type_for_query(message),
-                )
-                return AgentState(tool_result=_life_record_query_tool_result(records))
-            return AgentState(
-                tool_result={
-                    "tool": "query_life_record",
-                    "status": "dry_run",
-                    "message": "备忘录查询工具需要数据库连接。",
-                }
-            )
-        if intent == "memory_update":
-            user_id = state.get("user_id")
-            if self.memory_service is not None and user_id is not None:
-                result = await self.memory_service.save_from_text(user_id=user_id, text=message)
-                return AgentState(tool_result=_memory_save_tool_result(result))
-            return AgentState(
-                tool_result={
-                    "tool": "memory_update",
-                    "status": "dry_run",
-                    "message": "记忆工具需要数据库连接。",
-                }
-            )
-        if intent == "memory_query":
-            user_id = state.get("user_id")
-            if self.memory_service is not None and user_id is not None:
-                memories = await self.memory_service.list_active(user_id=user_id)
-                return AgentState(tool_result=_memory_query_tool_result(memories))
-            return AgentState(
-                tool_result={
-                    "tool": "memory_query",
-                    "status": "dry_run",
-                    "message": "记忆查询工具需要数据库连接。",
-                }
-            )
-        if intent == "memory_delete":
-            user_id = state.get("user_id")
-            if self.memory_service is not None and user_id is not None:
-                result = await self.memory_service.delete_from_text(user_id=user_id, text=message)
-                return AgentState(tool_result=_memory_delete_tool_result(result))
-            return AgentState(
-                tool_result={
-                    "tool": "memory_delete",
-                    "status": "dry_run",
-                    "message": "记忆删除工具需要数据库连接。",
-                }
-            )
-        return AgentState(tool_result=None)
+        planner = state.get("planner") or {}
+        tool_name = planner.get("tool_name")
+        if not tool_name:
+            return AgentState(tool_result=None, tool_trace=state.get("tool_trace") or [])
+
+        started = perf_counter()
+        tool = self.tool_registry.get(tool_name)
+        arguments = planner.get("arguments") or {}
+        validated_args = tool.validate_arguments(arguments)
+        result = await tool.handler(validated_args, self._tool_context(state))
+        latency_ms = int((perf_counter() - started) * 1000)
+        trace = ToolCallTrace(
+            tool_name=tool_name,
+            arguments=validated_args.model_dump(),
+            status=result.status,
+            latency_ms=latency_ms,
+            error_code=result.error_code,
+            result=result.data,
+        )
+        return AgentState(
+            tool_result=result.data,
+            tool_trace=[*(state.get("tool_trace") or []), trace.model_dump()],
+        )
+
+    def _tool_context(self, state: AgentState) -> ToolContext:
+        context = state.get("context") or {}
+        return ToolContext(
+            user_id=state.get("user_id"),
+            session_id=None,
+            now=datetime.now(UTC),
+            timezone="Asia/Shanghai",
+            memories=context.get("memories") or [],
+        )
 
     async def response_composer(self, state: AgentState) -> AgentState:
         message = state.get("sanitized_message", "")
@@ -276,6 +158,16 @@ class LifeAgentGraph:
         if not message:
             return AgentState(
                 final_response="我没有收到有效内容，可以重新说一遍吗？",
+                model="none",
+                provider="local",
+                latency_ms=0,
+            )
+
+        planner = state.get("planner") or {}
+        if planner.get("action") == "ask_clarification":
+            return AgentState(
+                final_response=planner.get("question") or "我还需要一点信息才能继续。",
+                intent=intent,
                 model="none",
                 provider="local",
                 latency_ms=0,
@@ -310,24 +202,30 @@ class LifeAgentGraph:
 
 def _build_user_prompt(state: AgentState) -> str:
     message = state.get("sanitized_message", "")
-    intent = state.get("intent", "unknown")
+    planner = state.get("planner") or {}
     tool_result = state.get("tool_result")
-    slots = state.get("slots") or {}
     context = state.get("context") or {}
     memories = context.get("memory_prompt", "无")
     return (
         f"用户消息：{message}\n"
-        f"识别意图：{intent}\n"
-        f"提取信息：{slots}\n"
+        f"Planner 决策：{planner}\n"
         f"长期记忆：\n{memories}\n"
         f"工具结果：{tool_result}\n"
-        "请给用户一个自然、简洁的回复。"
+        "请给用户一个自然、简洁的回复。不能添加工具结果之外的事实。"
     )
+
+
+def _intent_from_planner(planner: dict[str, Any]) -> str:
+    if planner.get("action") == "final_answer":
+        return planner.get("domain") or "general"
+    if planner.get("action") == "ask_clarification":
+        return planner.get("domain") or "clarification"
+    return planner.get("tool_name") or planner.get("domain") or "unknown"
 
 
 def _direct_tool_response(state: AgentState) -> str | None:
     tool_result = state.get("tool_result") or {}
-    if tool_result.get("tool") != "stock_query":
+    if tool_result.get("tool") not in {"market_overview", "market_quote", "market_hotspots"}:
         return None
     status = tool_result.get("status")
     if status == "success":
@@ -344,7 +242,7 @@ def _direct_tool_response(state: AgentState) -> str | None:
         return "请告诉我要查询的股票、指数名称或代码；如果想看市场概览，也可以问“今天热门板块”。"
     if status == "not_found":
         return "没有查到对应的证券基础信息，请换一个更明确的名称或代码。"
-    if status == "unavailable":
+    if status in {"unavailable", "failed"}:
         return "证券行情源暂时不可用，请稍后再试。"
     return None
 

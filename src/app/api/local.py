@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.intent_classifier import IntentClassificationError
 from app.agent.local_agent import LocalAgentService
+from app.agent.planner import PlannerError
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
 from app.models import (
@@ -59,6 +59,8 @@ class LocalChatResponse(BaseModel):
     latency_ms: int
     user_id: int | None = None
     tool_result: dict[str, Any] | None = None
+    planner: dict[str, Any] | None = None
+    tool_trace: list[dict[str, Any]] | None = None
 
 
 class LocalReminderItem(BaseModel):
@@ -253,7 +255,7 @@ async def local_chat(
             session=session,
             payload=payload,
         )
-    except (DeepSeekProviderError, IntentClassificationError) as exc:
+    except (DeepSeekProviderError, PlannerError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return LocalChatResponse(
         content=result.content,
@@ -263,6 +265,8 @@ async def local_chat(
         latency_ms=result.latency_ms,
         user_id=user_id,
         tool_result=result.tool_result,
+        planner=result.planner,
+        tool_trace=result.tool_trace,
     )
 
 
@@ -307,12 +311,14 @@ async def _chat_with_optional_database(
                     llm_latency_ms=result.latency_ms,
                     raw_payload={
                         "model": result.model,
+                        "planner": result.planner,
                         "tool_result": result.tool_result,
+                        "tool_trace": result.tool_trace,
                         "source": "local_debug",
                     },
                 )
             return user_id, result
-    except (DeepSeekProviderError, IntentClassificationError):
+    except (DeepSeekProviderError, PlannerError):
         raise
     except Exception as exc:
         if session is None:
