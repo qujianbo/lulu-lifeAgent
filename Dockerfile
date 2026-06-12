@@ -3,8 +3,7 @@ FROM python:3.11.15-slim-bookworm AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_HTTP_TIMEOUT=120
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
@@ -14,6 +13,7 @@ RUN apt-get update \
 
 COPY --from=ghcr.io/astral-sh/uv:0.5.30 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md alembic.ini ./
+ENV UV_HTTP_TIMEOUT=120
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
