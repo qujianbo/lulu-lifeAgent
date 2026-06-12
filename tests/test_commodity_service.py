@@ -72,3 +72,27 @@ async def test_query_gold_price_per_gram(monkeypatch) -> None:
     assert result.status == "success"
     assert result.items[0].price == Decimal("100.000000")
     assert result.items[0].unit == "美元/克"
+
+
+async def test_query_gold_price_per_gram_in_cny(monkeypatch) -> None:
+    def fake_fetch(url: str, symbol: str, timeout_seconds: int) -> dict[str, object]:
+        return {
+            "symbol": symbol,
+            "price": 3110.34768,
+            "currency": "USD",
+            "updatedAt": "2026-06-12T06:00:52Z",
+        }
+
+    def fake_rate(url: str, timeout_seconds: int) -> Decimal:
+        return Decimal("7.25")
+
+    monkeypatch.setattr("app.services.commodities.service._fetch_gold_api_quote", fake_fetch)
+    monkeypatch.setattr("app.services.commodities.service._fetch_usd_cny_rate", fake_rate)
+    service = CommodityService()
+
+    result = await service.query_from_text("我需要知道黄金多少人民币一克")
+
+    assert result.status == "success"
+    assert result.items[0].price == Decimal("725.00")
+    assert result.items[0].currency == "CNY"
+    assert result.items[0].unit == "元/克"

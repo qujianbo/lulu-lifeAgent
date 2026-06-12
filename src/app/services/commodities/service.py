@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 DEFAULT_TIMEOUT_SECONDS = 8
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
 GOLD_API_URL = "https://api.gold-api.com/price"
+USD_RATE_URL = "https://open.er-api.com/v6/latest/USD"
 TROY_OUNCE_GRAMS = Decimal("31.1034768")
 COMMODITY_ALIASES: dict[str, str] = {
     "金价": "XAU",
@@ -56,10 +57,12 @@ class CommodityService:
         *,
         chart_url: str = YAHOO_CHART_URL,
         gold_api_url: str = GOLD_API_URL,
+        usd_rate_url: str = USD_RATE_URL,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         self.chart_url = chart_url
         self.gold_api_url = gold_api_url
+        self.usd_rate_url = usd_rate_url
         self.timeout_seconds = timeout_seconds
 
     async def query_from_text(self, text: str) -> CommodityQuoteResult:
@@ -72,6 +75,13 @@ class CommodityService:
             )
         try:
             items = _apply_requested_unit(await self.fetch_quotes(symbols), text)
+            if _asks_for_cny_price(text):
+                rate = await asyncio.to_thread(
+                    _fetch_usd_cny_rate,
+                    self.usd_rate_url,
+                    self.timeout_seconds,
+                )
+                items = _apply_requested_currency(items, rate)
         except CommodityFetchError as exc:
             return CommodityQuoteResult(
                 status="unavailable",
@@ -150,9 +160,42 @@ def _apply_requested_unit(items: list[CommodityQuote], text: str) -> list[Commod
     return converted
 
 
+def _apply_requested_currency(
+    items: list[CommodityQuote],
+    usd_cny_rate: Decimal,
+) -> list[CommodityQuote]:
+    converted: list[CommodityQuote] = []
+    for item in items:
+        if item.currency == "USD" and item.price is not None:
+            converted.append(
+                replace(
+                    item,
+                    price=(item.price * usd_cny_rate).quantize(Decimal("0.01")),
+                    currency="CNY",
+                    unit=_convert_unit_to_cny(item.unit),
+                )
+            )
+        else:
+            converted.append(item)
+    return converted
+
+
 def _asks_for_gram_price(text: str) -> bool:
     normalized = text.lower()
     return any(keyword in normalized for keyword in ("一克", "每克", "克", "/g", " g"))
+
+
+def _asks_for_cny_price(text: str) -> bool:
+    normalized = text.lower()
+    return any(keyword in normalized for keyword in ("人民币", "元", "cny", "rmb"))
+
+
+def _convert_unit_to_cny(unit: str) -> str:
+    return (
+        unit.replace("美元", "元")
+        .replace("USD", "CNY")
+        .replace("usd", "CNY")
+    )
 
 
 class CommodityFetchError(RuntimeError):
@@ -178,6 +221,19 @@ def _fetch_gold_api_quote(url: str, symbol: str, timeout_seconds: int) -> dict[s
             return json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise CommodityFetchError(exc.__class__.__name__) from exc
+
+
+def _fetch_usd_cny_rate(url: str, timeout_seconds: int) -> Decimal:
+    request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise CommodityFetchError(exc.__class__.__name__) from exc
+    rate = _decimal((payload.get("rates") or {}).get("CNY"))
+    if rate is None:
+        raise CommodityFetchError("usd_cny_rate_missing")
+    return rate
 
 
 def _parse_gold_api_commodity(
