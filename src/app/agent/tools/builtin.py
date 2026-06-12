@@ -217,7 +217,8 @@ async def _commodity_quote(
     parsed = (
         args if isinstance(args, CommodityQuoteArgs) else CommodityQuoteArgs.model_validate(args)
     )
-    result = await service.query_from_text(parsed.query)
+    # 商品工具保留原始问法，避免模型规划时丢掉“每克”等单位信息。
+    result = await service.query_from_text(ctx.raw_message or parsed.query)
     data = {
         "tool": "commodity_quote",
         "status": result.status,

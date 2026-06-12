@@ -90,7 +90,9 @@ class FakeLLM:
                 decision.update(
                     action="call_tool",
                     tool_name="commodity_quote",
-                    arguments={"query": user_message},
+                    arguments={
+                        "query": "黄金" if "一克" in user_message else user_message,
+                    },
                     domain="commodity",
                 )
             elif any(word in user_message for word in ("股票", "证券", "AAPL", "指数")):
@@ -196,7 +198,11 @@ class FakeMarketService:
 
 
 class FakeCommodityService:
+    def __init__(self) -> None:
+        self.last_query: str | None = None
+
     async def query_from_text(self, text: str):
+        self.last_query = text
         return CommodityQuoteResult(
             status="success",
             message="商品行情查询成功。",
@@ -384,6 +390,17 @@ async def test_agent_graph_routes_gold_price_without_symbol() -> None:
     assert result["tool_result"]["status"] == "success"
     assert "COMEX 黄金期货" in result["final_response"]
     assert "美元/盎司" in result["final_response"]
+
+
+async def test_agent_graph_passes_raw_commodity_message_to_tool() -> None:
+    service = FakeCommodityService()
+    graph = LifeAgentGraph(FakeLLM(), commodity_service=service)
+
+    result = await graph.ainvoke({"raw_message": "黄金多少钱一克", "user_id": 1})
+
+    assert result["planner"]["arguments"] == {"query": "黄金"}
+    assert service.last_query == "黄金多少钱一克"
+    assert result["tool_result"]["status"] == "success"
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:

@@ -12,6 +12,7 @@ from app.agent.schemas import ToolStatus
 class ToolContext:
     user_id: int | None
     session_id: str | None
+    raw_message: str
     now: datetime
     timezone: str
     memories: list[dict[str, Any]]

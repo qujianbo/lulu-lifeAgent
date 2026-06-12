@@ -151,6 +151,7 @@ class LifeAgentGraph:
         return ToolContext(
             user_id=state.get("user_id"),
             session_id=None,
+            raw_message=state.get("sanitized_message") or state.get("raw_message", ""),
             now=datetime.now(UTC),
             timezone="Asia/Shanghai",
             memories=context.get("memories") or [],
