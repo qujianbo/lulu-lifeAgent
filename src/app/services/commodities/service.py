@@ -10,18 +10,25 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_TIMEOUT_SECONDS = 8
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
+GOLD_API_URL = "https://api.gold-api.com/price"
 COMMODITY_ALIASES: dict[str, str] = {
-    "金价": "GC=F",
-    "黄金": "GC=F",
-    "国际金价": "GC=F",
-    "现货黄金": "GC=F",
-    "白银": "SI=F",
-    "银价": "SI=F",
+    "金价": "XAU",
+    "黄金": "XAU",
+    "国际金价": "XAU",
+    "现货黄金": "XAU",
+    "白银": "XAG",
+    "银价": "XAG",
+    "铜价": "HG",
+    "国际铜": "HG",
+    "铂金": "XPT",
+    "钯金": "XPD",
     "原油": "CL=F",
     "油价": "CL=F",
     "wti": "CL=F",
     "WTI": "CL=F",
 }
+# 服务器环境访问 Yahoo 商品期货容易被拒绝，贵金属先走已验证可用的现货源。
+GOLD_API_SYMBOLS = {"XAU", "XAG", "HG", "XPT", "XPD"}
 
 
 @dataclass(frozen=True)
@@ -47,9 +54,11 @@ class CommodityService:
         self,
         *,
         chart_url: str = YAHOO_CHART_URL,
+        gold_api_url: str = GOLD_API_URL,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         self.chart_url = chart_url
+        self.gold_api_url = gold_api_url
         self.timeout_seconds = timeout_seconds
 
     async def query_from_text(self, text: str) -> CommodityQuoteResult:
@@ -85,16 +94,26 @@ class CommodityService:
         failures = 0
         for symbol in symbols:
             try:
-                payload = await asyncio.to_thread(
-                    _fetch_yahoo_chart,
-                    self.chart_url,
-                    symbol,
-                    self.timeout_seconds,
-                )
+                # 按标的选择稳定数据源，避免让用户关心具体行情代码。
+                if symbol in GOLD_API_SYMBOLS:
+                    payload = await asyncio.to_thread(
+                        _fetch_gold_api_quote,
+                        self.gold_api_url,
+                        symbol,
+                        self.timeout_seconds,
+                    )
+                    quote_item = _parse_gold_api_commodity(payload, fallback_symbol=symbol)
+                else:
+                    payload = await asyncio.to_thread(
+                        _fetch_yahoo_chart,
+                        self.chart_url,
+                        symbol,
+                        self.timeout_seconds,
+                    )
+                    quote_item = _parse_yahoo_commodity(payload, fallback_symbol=symbol)
             except CommodityFetchError:
                 failures += 1
                 continue
-            quote_item = _parse_yahoo_commodity(payload, fallback_symbol=symbol)
             if quote_item is not None:
                 quotes.append(quote_item)
         if failures == len(symbols):
@@ -126,6 +145,36 @@ def _fetch_yahoo_chart(url: str, symbol: str, timeout_seconds: int) -> dict[str,
         raise CommodityFetchError(exc.__class__.__name__) from exc
 
 
+def _fetch_gold_api_quote(url: str, symbol: str, timeout_seconds: int) -> dict[str, Any]:
+    request_url = f"{url.rstrip('/')}/{quote(symbol, safe='')}"
+    request = Request(request_url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise CommodityFetchError(exc.__class__.__name__) from exc
+
+
+def _parse_gold_api_commodity(
+    payload: dict[str, Any],
+    *,
+    fallback_symbol: str,
+) -> CommodityQuote | None:
+    symbol = str(payload.get("symbol") or fallback_symbol).upper()
+    price = _decimal(payload.get("price"))
+    if price is None:
+        return None
+    return CommodityQuote(
+        symbol=symbol,
+        name=_commodity_name(symbol, {}),
+        price=price,
+        currency=payload.get("currency"),
+        unit=_commodity_unit(symbol),
+        exchange="gold-api.com",
+        exchange_time=payload.get("updatedAt"),
+    )
+
+
 def _parse_yahoo_commodity(
     payload: dict[str, Any],
     *,
@@ -153,13 +202,20 @@ def _commodity_name(symbol: str, meta: dict[str, Any]) -> str:
         "GC=F": "COMEX 黄金期货",
         "SI=F": "COMEX 白银期货",
         "CL=F": "WTI 原油期货",
+        "XAU": "国际黄金现货",
+        "XAG": "国际白银现货",
+        "HG": "国际铜价",
+        "XPT": "国际铂金现货",
+        "XPD": "国际钯金现货",
     }
     return known.get(symbol) or meta.get("shortName") or meta.get("longName") or symbol
 
 
 def _commodity_unit(symbol: str) -> str:
-    if symbol in {"GC=F", "SI=F"}:
+    if symbol in {"GC=F", "SI=F", "XAU", "XAG", "XPT", "XPD"}:
         return "美元/盎司"
+    if symbol == "HG":
+        return "美元/磅"
     if symbol == "CL=F":
         return "美元/桶"
     return "报价单位"
