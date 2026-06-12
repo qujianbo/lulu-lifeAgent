@@ -14,7 +14,8 @@ RUN apt-get update \
 COPY --from=ghcr.io/astral-sh/uv:0.5.30 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md alembic.ini ./
 ENV UV_HTTP_TIMEOUT=120
-RUN uv sync --frozen --no-dev --no-install-project
+# Use Aliyun PyPI mirror to keep builds reliable on the lightweight server.
+RUN uv sync --index-url https://mirrors.aliyun.com/pypi/simple/ --frozen --no-dev --no-install-project
 
 COPY src ./src
 COPY migrations ./migrations
