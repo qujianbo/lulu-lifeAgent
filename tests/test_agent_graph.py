@@ -4,6 +4,7 @@ from decimal import Decimal
 from app.agent.graph import LifeAgentGraph
 from app.agent.tools import builtin
 from app.services.briefing.rss import BriefingArticle
+from app.services.commodities import CommodityQuote, CommodityQuoteResult
 from app.services.llm.types import LLMResponse
 from app.services.markets import MarketHotspot, MarketQuote, MarketQuoteResult
 
@@ -84,6 +85,13 @@ class FakeLLM:
                     tool_name="market_hotspots",
                     arguments={"market": "A股", "limit": 5},
                     domain="market",
+                )
+            elif "金价" in user_message or "黄金" in user_message:
+                decision.update(
+                    action="call_tool",
+                    tool_name="commodity_quote",
+                    arguments={"query": user_message},
+                    domain="commodity",
                 )
             elif any(word in user_message for word in ("股票", "证券", "AAPL", "指数")):
                 decision.update(
@@ -184,6 +192,25 @@ class FakeMarketService:
             message="市场概览查询成功。",
             quotes=[_fake_quote()],
             hotspots=[_fake_hotspot()],
+        )
+
+
+class FakeCommodityService:
+    async def query_from_text(self, text: str):
+        return CommodityQuoteResult(
+            status="success",
+            message="商品行情查询成功。",
+            items=[
+                CommodityQuote(
+                    symbol="GC=F",
+                    name="COMEX 黄金期货",
+                    price=Decimal("4198.6"),
+                    currency="USD",
+                    unit="美元/盎司",
+                    exchange="COMEX",
+                    exchange_time="2026-06-12T01:35:00-04:00",
+                )
+            ],
         )
 
 
@@ -344,6 +371,19 @@ async def test_agent_graph_routes_market_overview_with_direct_response() -> None
     assert "今天市场概览" in result["final_response"]
     assert "上证指数" in result["final_response"]
     assert "半导体" in result["final_response"]
+
+
+async def test_agent_graph_routes_gold_price_without_symbol() -> None:
+    graph = LifeAgentGraph(FakeLLM(), commodity_service=FakeCommodityService())
+
+    result = await graph.ainvoke({"raw_message": "今日金价", "user_id": 1})
+
+    assert result["intent"] == "commodity_quote"
+    assert result["planner"]["tool_name"] == "commodity_quote"
+    assert result["tool_result"]["tool"] == "commodity_quote"
+    assert result["tool_result"]["status"] == "success"
+    assert "COMEX 黄金期货" in result["final_response"]
+    assert "美元/盎司" in result["final_response"]
 
 
 async def test_agent_graph_routes_general_qa_without_tool() -> None:

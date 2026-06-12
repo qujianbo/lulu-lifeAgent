@@ -51,6 +51,7 @@ def test_tool_registry_contains_news_tools() -> None:
 
     assert registry.has("news_tech_ai")
     assert registry.has("news_commodities")
+    assert registry.has("commodity_quote")
 
 
 async def test_planner_rejects_unknown_tool_name() -> None:

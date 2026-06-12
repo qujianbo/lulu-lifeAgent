@@ -3,6 +3,7 @@ from typing import Any
 
 from app.agent.graph import LifeAgentGraph
 from app.services.briefing import BriefingService
+from app.services.commodities import CommodityService
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.markets import MarketService
@@ -32,6 +33,7 @@ class LocalAgentService:
         life_record_service: LifeRecordService | None = None,
         briefing_service: BriefingService | None = None,
         market_service: MarketService | None = None,
+        commodity_service: CommodityService | None = None,
     ) -> None:
         self.graph = LifeAgentGraph(
             llm,
@@ -40,6 +42,7 @@ class LocalAgentService:
             life_record_service=life_record_service,
             briefing_service=briefing_service,
             market_service=market_service,
+            commodity_service=commodity_service,
         )
 
     async def chat(self, user_message: str, *, user_id: int | None = None) -> LocalAgentResult:

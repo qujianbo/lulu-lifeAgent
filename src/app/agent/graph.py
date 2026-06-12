@@ -11,6 +11,7 @@ from app.agent.state import AgentState
 from app.agent.tools.base import ToolContext
 from app.agent.tools.builtin import build_tool_registry
 from app.services.briefing import BriefingService
+from app.services.commodities import CommodityService
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMMessage
@@ -33,6 +34,7 @@ class LifeAgentGraph:
         life_record_service: LifeRecordService | None = None,
         briefing_service: BriefingService | None = None,
         market_service: MarketService | None = None,
+        commodity_service: CommodityService | None = None,
     ) -> None:
         self.llm = llm
         self.reminder_service = reminder_service
@@ -40,12 +42,14 @@ class LifeAgentGraph:
         self.life_record_service = life_record_service
         self.briefing_service = briefing_service
         self.market_service = market_service
+        self.commodity_service = commodity_service
         self.tool_registry = build_tool_registry(
             reminder_service=reminder_service,
             memory_service=memory_service,
             life_record_service=life_record_service,
             briefing_service=briefing_service,
             market_service=market_service,
+            commodity_service=commodity_service,
         )
         self.planner_service = ToolCallingPlanner(llm, self.tool_registry)
         self.graph = self._build_graph()
@@ -227,6 +231,8 @@ def _direct_tool_response(state: AgentState) -> str | None:
     tool_result = state.get("tool_result") or {}
     if tool_result.get("tool") in {"news_tech_ai", "news_commodities"}:
         return _format_news_items(tool_result)
+    if tool_result.get("tool") == "commodity_quote":
+        return _format_commodity_quotes(tool_result)
     if tool_result.get("tool") not in {"market_overview", "market_quote", "market_hotspots"}:
         return None
     status = tool_result.get("status")
@@ -260,6 +266,29 @@ def _format_news_items(tool_result: dict[str, Any]) -> str:
         suffix = f"（{link}）" if link else ""
         lines.append(f"{index}. {item.get('title') or '-'}{suffix}")
     return "\n".join(lines)
+
+
+def _format_commodity_quotes(tool_result: dict[str, Any]) -> str:
+    status = tool_result.get("status")
+    if status == "needs_clarification":
+        return "请告诉我要查询的商品，例如黄金、白银或原油。"
+    if status == "not_found":
+        return "没有查到对应的商品行情，请换一个更明确的商品名称。"
+    if status in {"unavailable", "failed"}:
+        return "商品行情源暂时不可用，请稍后再试。"
+    items = tool_result.get("items") or []
+    if not items:
+        return "没有查到对应的商品行情。"
+    return "\n".join(_format_commodity_quote(item) for item in items)
+
+
+def _format_commodity_quote(item: dict[str, Any]) -> str:
+    name = item.get("name") or "商品"
+    price = item.get("price") or "-"
+    unit = item.get("unit") or item.get("currency") or ""
+    exchange = item.get("exchange") or "行情源"
+    exchange_time = _format_exchange_time(item.get("exchange_time"))
+    return f"{name} 当前价格 {price} {unit}，来源：{exchange}。更新时间：{exchange_time}。"
 
 
 def _format_market_quote(item: dict[str, Any]) -> str:

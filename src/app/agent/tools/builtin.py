@@ -6,6 +6,7 @@ from app.agent.tools.base import AgentTool, ToolContext, ToolResult
 from app.agent.tools.registry import ToolRegistry
 from app.services.briefing import BriefingService
 from app.services.briefing.rss import fetch_rss_articles
+from app.services.commodities import CommodityService
 from app.services.life_records import LifeRecordService
 from app.services.life_records.service import infer_record_type_for_query
 from app.services.markets import MarketService
@@ -43,6 +44,10 @@ class MarketHotspotsArgs(BaseModel):
     limit: int = Field(default=5, ge=1, le=10)
 
 
+class CommodityQuoteArgs(BaseModel):
+    query: str = Field(min_length=1, max_length=80)
+
+
 class TodoQueryArgs(BaseModel):
     limit: int = Field(default=20, ge=1, le=50)
 
@@ -72,8 +77,10 @@ def build_tool_registry(
     life_record_service: LifeRecordService | None = None,
     briefing_service: BriefingService | None = None,
     market_service: MarketService | None = None,
+    commodity_service: CommodityService | None = None,
 ) -> ToolRegistry:
     market = market_service or MarketService()
+    commodity = commodity_service or CommodityService()
     tools = [
         AgentTool(
             name="market_overview",
@@ -92,6 +99,12 @@ def build_tool_registry(
             description="查询热门行业板块、热门概念板块、强势板块时使用。",
             args_model=MarketHotspotsArgs,
             handler=lambda args, ctx: _market_hotspots(market, args, ctx),
+        ),
+        AgentTool(
+            name="commodity_quote",
+            description="查询黄金、金价、白银、原油、油价等国际大宗商品实时行情。",
+            args_model=CommodityQuoteArgs,
+            handler=lambda args, ctx: _commodity_quote(commodity, args, ctx),
         ),
         AgentTool(
             name="todo_create",
@@ -194,6 +207,35 @@ async def _market_hotspots(service: MarketService, args: BaseModel, ctx: ToolCon
     result = await service.query_hotspots(limit=parsed.limit)
     data = _market_result_data("market_hotspots", result)
     return ToolResult("market_hotspots", _tool_status(result.status), result.message, data)
+
+
+async def _commodity_quote(
+    service: CommodityService,
+    args: BaseModel,
+    ctx: ToolContext,
+) -> ToolResult:
+    parsed = (
+        args if isinstance(args, CommodityQuoteArgs) else CommodityQuoteArgs.model_validate(args)
+    )
+    result = await service.query_from_text(parsed.query)
+    data = {
+        "tool": "commodity_quote",
+        "status": result.status,
+        "message": result.message,
+        "items": [
+            {
+                "symbol": item.symbol,
+                "name": item.name,
+                "price": str(item.price) if item.price is not None else None,
+                "currency": item.currency,
+                "unit": item.unit,
+                "exchange": item.exchange,
+                "exchange_time": item.exchange_time,
+            }
+            for item in result.items
+        ],
+    }
+    return ToolResult("commodity_quote", _tool_status(result.status), result.message, data)
 
 
 async def _todo_create(

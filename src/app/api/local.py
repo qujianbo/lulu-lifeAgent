@@ -24,6 +24,7 @@ from app.models import (
 from app.repositories import MessageLogRepository, ScheduledJobRepository, UserRepository
 from app.services.briefing import BriefingService
 from app.services.briefing.rss import fetch_rss_articles, split_rss_urls
+from app.services.commodities import CommodityService
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider, DeepSeekProviderError
 from app.services.llm.types import LLMMessage
@@ -241,6 +242,7 @@ async def local_chat(
     life_record_service = LifeRecordService(session) if session is not None else None
     briefing_service = BriefingService(session) if session is not None else None
     market_service = MarketService()
+    commodity_service = CommodityService()
     service = LocalAgentService(
         DeepSeekProvider(settings),
         reminder_service=reminder_service,
@@ -248,6 +250,7 @@ async def local_chat(
         life_record_service=life_record_service,
         briefing_service=briefing_service,
         market_service=market_service,
+        commodity_service=commodity_service,
     )
     try:
         user_id, result = await _chat_with_optional_database(
