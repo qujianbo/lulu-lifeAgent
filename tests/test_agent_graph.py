@@ -27,6 +27,7 @@ class FakeLLM:
                 or "AAPL" in user_message
                 or "指数" in user_message
                 or "板块" in user_message
+                or "市场行情" in user_message
             ):
                 intent = "stock_query"
             if user_message.strip() == "用户消息：":
@@ -110,6 +111,33 @@ class FakeBriefingService:
 
 class FakeMarketService:
     async def query_from_text(self, text: str):
+        if "市场行情" in text:
+            return MarketQuoteResult(
+                status="success",
+                message="市场概览查询成功。",
+                quotes=[
+                    MarketQuote(
+                        symbol="000001.SS",
+                        name="上证指数",
+                        market="上交所",
+                        currency="CNY",
+                        price=Decimal("3888.88"),
+                        change=Decimal("12.34"),
+                        change_percent=Decimal("0.32"),
+                        exchange_time="2026-06-11T14:30:00+00:00",
+                    )
+                ],
+                hotspots=[
+                    MarketHotspot(
+                        board_type="行业板块",
+                        code="BK0001",
+                        name="半导体",
+                        price=Decimal("1000"),
+                        change_percent=Decimal("3.21"),
+                        main_net_inflow=Decimal("123456789"),
+                    )
+                ],
+            )
         if "板块" in text:
             return MarketQuoteResult(
                 status="success",
@@ -219,6 +247,20 @@ async def test_agent_graph_routes_market_hotspots_with_direct_response() -> None
     assert result["tool_result"]["status"] == "success"
     assert result["provider"] == "local"
     assert "今日热门板块" in result["final_response"]
+    assert "半导体" in result["final_response"]
+
+
+async def test_agent_graph_routes_market_overview_with_direct_response() -> None:
+    graph = LifeAgentGraph(FakeLLM(), market_service=FakeMarketService())
+
+    result = await graph.ainvoke({"raw_message": "今天市场行情如何", "user_id": 1})
+
+    assert result["intent"] == "stock_query"
+    assert result["tool_result"]["tool"] == "stock_query"
+    assert result["tool_result"]["status"] == "success"
+    assert result["provider"] == "local"
+    assert "今天市场概览" in result["final_response"]
+    assert "上证指数" in result["final_response"]
     assert "半导体" in result["final_response"]
 
 

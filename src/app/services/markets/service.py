@@ -24,6 +24,7 @@ EASTMONEY_HEADERS = {
 }
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 DEFAULT_TIMEOUT_SECONDS = 8
+MARKET_OVERVIEW_SYMBOLS = ["000001.SS", "399001.SZ", "399006.SZ"]
 KNOWN_SYMBOLS: dict[str, str] = {
     "上证大盘指数": "000001.SS",
     "上证大盘": "000001.SS",
@@ -94,6 +95,8 @@ class MarketService:
         self.board_url = board_url
 
     async def query_from_text(self, text: str) -> MarketQuoteResult:
+        if is_market_overview_query(text):
+            return await self.query_market_overview()
         if is_hotspot_query(text):
             return await self.query_hotspots()
         symbols = extract_market_symbols(text)
@@ -158,6 +161,30 @@ class MarketService:
             status="success",
             message="热门板块查询成功。",
             quotes=[],
+            hotspots=hotspots,
+        )
+
+    async def query_market_overview(self, *, hotspot_limit: int = 3) -> MarketQuoteResult:
+        quotes: list[MarketQuote] = []
+        hotspots: list[MarketHotspot] = []
+        try:
+            quotes = await self.fetch_quotes(MARKET_OVERVIEW_SYMBOLS)
+        except MarketQuoteFetchError:
+            pass
+        hotspot_result = await self.query_hotspots(limit=hotspot_limit)
+        if hotspot_result.status == "success":
+            hotspots = hotspot_result.hotspots or []
+        if not quotes and not hotspots:
+            return MarketQuoteResult(
+                status="unavailable",
+                message="市场概览暂时获取失败。",
+                quotes=[],
+                hotspots=[],
+            )
+        return MarketQuoteResult(
+            status="success",
+            message="市场概览查询成功。",
+            quotes=quotes,
             hotspots=hotspots,
         )
 
@@ -236,6 +263,26 @@ def is_hotspot_query(text: str) -> bool:
         keyword in normalized
         for keyword in ("热门板块", "热点板块", "强势板块", "板块热点", "板块排行")
     )
+
+
+def is_market_overview_query(text: str) -> bool:
+    normalized = text.strip()
+    overview_keywords = (
+        "市场行情",
+        "市场概览",
+        "大盘行情",
+        "今日行情",
+        "今天行情",
+        "a股行情",
+        "A股行情",
+        "a股市场",
+        "A股市场",
+        "股市行情",
+        "大盘怎么样",
+        "市场怎么样",
+        "股市怎么样",
+    )
+    return any(keyword in normalized for keyword in overview_keywords)
 
 
 def extract_market_symbols(text: str) -> list[str]:

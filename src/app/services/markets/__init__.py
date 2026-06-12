@@ -5,6 +5,7 @@ from app.services.markets.service import (
     MarketService,
     extract_market_symbols,
     is_hotspot_query,
+    is_market_overview_query,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "MarketService",
     "extract_market_symbols",
     "is_hotspot_query",
+    "is_market_overview_query",
 ]

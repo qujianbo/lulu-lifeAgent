@@ -1,4 +1,8 @@
-from app.services.markets import extract_market_symbols, is_hotspot_query
+from app.services.markets import (
+    extract_market_symbols,
+    is_hotspot_query,
+    is_market_overview_query,
+)
 
 
 def test_extract_market_symbols_for_us_stock() -> None:
@@ -29,3 +33,10 @@ def test_hotspot_query_detection() -> None:
     assert is_hotspot_query("那今天的热门板块是哪些")
     assert is_hotspot_query("看看热点板块")
     assert not is_hotspot_query("查询今日上证指数")
+
+
+def test_market_overview_query_detection() -> None:
+    assert is_market_overview_query("今天市场行情如何")
+    assert is_market_overview_query("A股市场怎么样")
+    assert is_market_overview_query("看一下大盘行情")
+    assert not is_market_overview_query("查询今日上证指数")

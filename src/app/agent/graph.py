@@ -332,9 +332,11 @@ def _direct_tool_response(state: AgentState) -> str | None:
     status = tool_result.get("status")
     if status == "success":
         hotspots = tool_result.get("hotspots") or []
+        items = tool_result.get("items") or []
+        if hotspots and items:
+            return _format_market_overview(items, hotspots)
         if hotspots:
             return _format_market_hotspots(hotspots)
-        items = tool_result.get("items") or []
         if not items:
             return "没有查到对应的证券行情。"
         return "\n".join(_format_market_quote(item) for item in items)
@@ -371,6 +373,28 @@ def _format_market_hotspots(items: list[dict[str, Any]]) -> str:
     if concept:
         lines.append("概念板块：" + "；".join(_format_hotspot_item(item) for item in concept))
     return "\n".join(lines)
+
+
+def _format_market_overview(
+    quote_items: list[dict[str, Any]],
+    hotspot_items: list[dict[str, Any]],
+) -> str:
+    quote_text = "；".join(_format_market_quote_brief(item) for item in quote_items)
+    lines = [f"今天市场概览：{quote_text}。"]
+    industry = [item for item in hotspot_items if item.get("board_type") == "行业板块"]
+    concept = [item for item in hotspot_items if item.get("board_type") == "概念板块"]
+    if industry:
+        lines.append("强势行业：" + "；".join(_format_hotspot_item(item) for item in industry))
+    if concept:
+        lines.append("热门概念：" + "；".join(_format_hotspot_item(item) for item in concept))
+    return "\n".join(lines)
+
+
+def _format_market_quote_brief(item: dict[str, Any]) -> str:
+    name = item.get("name") or "证券"
+    price = item.get("price") or "-"
+    change_percent = _format_signed(item.get("change_percent"), suffix="%")
+    return f"{name} {price}（{change_percent}）"
 
 
 def _format_hotspot_item(item: dict[str, Any]) -> str:
