@@ -1,13 +1,42 @@
-from app.services.web_search.service import WebSearchService, _parse_google_items
+from app.services.web_search.service import (
+    WebSearchService,
+    _parse_google_items,
+    _parse_tavily_items,
+)
 
 
-async def test_web_search_requires_google_config() -> None:
+async def test_web_search_requires_tavily_config_by_default() -> None:
     service = WebSearchService()
 
     result = await service.search("LangGraph 最新资料")
 
     assert result.status == "not_configured"
     assert result.items == []
+
+
+def test_parse_tavily_search_items() -> None:
+    items = _parse_tavily_items(
+        {
+            "results": [
+                {
+                    "title": "LangGraph",
+                    "url": "https://langchain-ai.github.io/langgraph/",
+                    "content": "Build stateful, multi-actor applications with LLMs.",
+                },
+                {
+                    "title": "",
+                    "url": "https://example.com/empty",
+                    "content": "缺少标题的结果会被过滤。",
+                },
+            ]
+        },
+        limit=5,
+    )
+
+    assert len(items) == 1
+    assert items[0].title == "LangGraph"
+    assert items[0].link == "https://langchain-ai.github.io/langgraph/"
+    assert items[0].source == "langchain-ai.github.io"
 
 
 def test_parse_google_search_items() -> None:

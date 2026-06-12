@@ -245,6 +245,8 @@ async def local_chat(
     market_service = MarketService()
     commodity_service = CommodityService()
     web_search_service = WebSearchService(
+        provider=settings.web_search_provider,
+        tavily_api_key=settings.tavily_api_key,
         google_api_key=settings.google_search_api_key,
         google_cx=settings.google_search_cx,
         timeout_seconds=settings.web_search_timeout_seconds,
