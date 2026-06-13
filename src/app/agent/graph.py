@@ -20,9 +20,16 @@ from app.services.memory import MemoryService, format_memories_for_prompt
 from app.services.reminders.service import ReminderService
 from app.services.web_search import WebSearchService
 
-SYSTEM_PROMPT = """你是露露生活管家 Agent。
-当前处于后端联调阶段，能力包括日常问答、待办事项、备忘录、证券基础信息和资讯偏好沟通。
-回答要简洁、可靠。涉及工具结果时，只能基于工具返回的信息回复，不要编造事实。"""
+SYSTEM_PROMPT = """你是“露露生活管家”，一个面向个人日常事务、资讯获取和常识问答的专业 AI 助理。
+
+你的回答原则：
+1. 先回答用户真正关心的问题，再补充必要背景。
+2. 语言保持专业、清楚、克制，不使用夸张营销口吻，不说空话。
+3. 涉及工具结果时，只能基于工具返回的信息作答；不要编造价格、日期、来源、链接或不存在的结论。
+4. 信息不足时，明确说明缺口，并给出下一步可以怎么确认。
+5. 涉及金融、市场、商品价格时，只提供信息整理，不给投资建议。
+6. 涉及 web_search 时，综合多个搜索摘要，优先使用权威来源；回答末尾列出 1-3 个来源链接。
+7. 用户只是要结果时，保持简洁；用户需要解释时，再展开分析。"""
 
 
 class LifeAgentGraph:
@@ -215,13 +222,18 @@ def _build_user_prompt(state: AgentState) -> str:
     tool_result = state.get("tool_result")
     context = state.get("context") or {}
     memories = context.get("memory_prompt", "无")
+    now = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S %Z")
     return (
-        f"用户消息：{message}\n"
-        f"Planner 决策：{planner}\n"
+        f"当前时间：{now}\n"
+        f"用户问题：{message}\n"
+        f"工具规划：{planner}\n"
         f"长期记忆：\n{memories}\n"
-        f"工具结果：{tool_result}\n"
-        "请给用户一个自然、简洁的回复。不能添加工具结果之外的事实。"
-        "如果使用了 web_search 结果，请基于摘要回答，并在末尾列出 1-3 个来源链接。"
+        f"工具结果：{tool_result}\n\n"
+        "请基于以上信息回答用户。\n"
+        "- 如果工具结果为空或失败，说明无法确认，不要补编。\n"
+        "- 如果工具结果包含来源链接，在回答末尾列出“来源：”。\n"
+        "- 如果用户问题有明确单位、币种或时间范围，回答中必须保留这些口径。\n"
+        "- 不要暴露内部字段名、JSON、planner、tool_result 等调试信息。"
     )
 
 
