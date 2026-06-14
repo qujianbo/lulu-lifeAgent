@@ -15,7 +15,7 @@ RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g; 
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.lock.txt ./
+COPY requirements.lock.txt alembic.ini ./
 # Install locked dependencies through pip because it fails loudly on poor network links.
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.lock.txt
