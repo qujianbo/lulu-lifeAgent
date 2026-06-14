@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录 | 生活管家 Agent</title>
+    <style>
+      :root {
+        color: #1f2933;
+        background: #f6f8fb;
+        font-family:
+          Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+      main {
+        width: min(420px, calc(100vw - 32px));
+        padding: 32px;
+        background: #ffffff;
+        border: 1px solid #d9e1ea;
+        border-radius: 8px;
+        box-shadow: 0 16px 42px rgba(31, 41, 51, 0.08);
+      }
+      h1 {
+        margin: 0 0 24px;
+        font-size: 28px;
+        line-height: 1.2;
+      }
+      label {
+        display: block;
+        margin: 16px 0 8px;
+        font-size: 14px;
+        color: #52606d;
+      }
+      input {
+        width: 100%;
+        height: 44px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 0 12px;
+        font-size: 16px;
+        color: #1f2933;
+        background: #ffffff;
+      }
+      button {
+        width: 100%;
+        height: 44px;
+        margin-top: 24px;
+        border: 0;
+        border-radius: 6px;
+        color: #ffffff;
+        background: #2f6f63;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: wait;
+        opacity: 0.72;
+      }
+      .status {
+        min-height: 22px;
+        margin-top: 14px;
+        font-size: 14px;
+        color: #b42318;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>生活管家 Agent</h1>
+      <form id="login-form">
+        <label for="username">用户名</label>
+        <input id="username" name="username" autocomplete="username" required />
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+        <button id="submit" type="submit">登录</button>
+        <div id="status" class="status" role="status"></div>
+      </form>
+    </main>
+    <script>
+      const form = document.querySelector("#login-form");
+      const button = document.querySelector("#submit");
+      const statusNode = document.querySelector("#status");
+
+      async function checkExistingSession() {
+        const response = await fetch("/api/auth/me", { credentials: "include" });
+        if (response.ok) window.location.href = "/chat";
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        statusNode.textContent = "";
+        button.disabled = true;
+        try {
+          const body = {
+            username: form.username.value.trim(),
+            password: form.password.value,
+          };
+          const response = await fetch("/api/auth/login", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!response.ok) throw new Error("用户名或密码不正确");
+          window.location.href = "/chat";
+        } catch (error) {
+          statusNode.textContent = error.message || "登录失败";
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      checkExistingSession().catch(() => {});
+    </script>
+  </body>
+</html>

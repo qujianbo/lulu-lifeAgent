@@ -77,6 +77,24 @@ class BetaSession(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class BetaFeedback(BigIntPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "beta_feedback"
+    __table_args__ = (
+        Index("ix_beta_feedback_user_id_created_at", "user_id", "created_at"),
+        Index("ix_beta_feedback_status_created_at", "status", "created_at"),
+    )
+
+    # Logical reference to users.id; feedback follows the business user identity.
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    beta_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="general")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    page_url: Mapped[str | None] = mapped_column(Text)
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+
+
 class IdSequence(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "id_sequences"
 

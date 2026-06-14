@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>内测用户管理 | 生活管家 Agent</title>
+    <style>
+      :root {
+        color: #1f2933;
+        background: #f7f9fc;
+        font-family:
+          Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 64px;
+        padding: 0 24px;
+        background: #ffffff;
+        border-bottom: 1px solid #d9e1ea;
+      }
+      h1 {
+        margin: 0;
+        font-size: 22px;
+      }
+      main {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .toolbar,
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr) auto;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      input,
+      select {
+        height: 40px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 0 10px;
+        font-size: 14px;
+      }
+      button {
+        height: 40px;
+        border: 0;
+        border-radius: 6px;
+        padding: 0 14px;
+        color: #ffffff;
+        background: #2f6f63;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+        border: 1px solid #d9e1ea;
+      }
+      th,
+      td {
+        padding: 12px;
+        border-bottom: 1px solid #e5ebf1;
+        text-align: left;
+        font-size: 14px;
+      }
+      th {
+        color: #52606d;
+        background: #f1f5f9;
+      }
+      .secondary {
+        color: #1f2933;
+        background: #e5ebf1;
+      }
+      .status {
+        min-height: 22px;
+        margin: 10px 0;
+        color: #52606d;
+      }
+      @media (max-width: 760px) {
+        .toolbar,
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+        main {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>内测用户管理</h1>
+      <a href="/chat">返回聊天</a>
+    </header>
+    <main>
+      <section class="toolbar">
+        <input id="admin-token" type="password" placeholder="ADMIN_TOKEN" />
+        <button id="save-token" type="button">保存</button>
+        <button id="refresh" class="secondary" type="button">刷新</button>
+      </section>
+      <form id="create-form" class="form-grid">
+        <input name="username" placeholder="用户名" required />
+        <input name="password" type="password" placeholder="初始密码" minlength="8" required />
+        <input name="display_name" placeholder="显示名称" />
+        <input name="remark" placeholder="备注" />
+        <button type="submit">创建</button>
+      </form>
+      <div id="status" class="status" role="status"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>用户名</th>
+            <th>显示名称</th>
+            <th>状态</th>
+            <th>最近登录</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="users"></tbody>
+      </table>
+      <h2>最新反馈</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>用户ID</th>
+            <th>类别</th>
+            <th>内容</th>
+            <th>提交时间</th>
+          </tr>
+        </thead>
+        <tbody id="feedback"></tbody>
+      </table>
+    </main>
+    <script>
+      const tokenInput = document.querySelector("#admin-token");
+      const statusNode = document.querySelector("#status");
+      const usersNode = document.querySelector("#users");
+      const feedbackNode = document.querySelector("#feedback");
+      const createForm = document.querySelector("#create-form");
+      tokenInput.value = localStorage.getItem("lulu-admin-token") || "";
+
+      function headers() {
+        return {
+          "Content-Type": "application/json",
+          "x-admin-token": tokenInput.value.trim(),
+        };
+      }
+
+      function setStatus(text) {
+        statusNode.textContent = text;
+      }
+
+      async function loadUsers() {
+        setStatus("加载中");
+        const response = await fetch("/api/admin/beta-users", { headers: headers() });
+        const data = await response.json();
+        if (!response.ok) {
+          setStatus(data.detail || "加载失败");
+          return;
+        }
+        usersNode.innerHTML = "";
+        for (const item of data.items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${item.id}</td>
+            <td>${item.username}</td>
+            <td>${item.display_name || ""}</td>
+            <td>${item.status}</td>
+            <td>${item.last_login_at || ""}</td>
+            <td></td>
+          `;
+          const actionCell = tr.querySelector("td:last-child");
+          const toggle = document.createElement("button");
+          toggle.className = item.status === "active" ? "secondary" : "";
+          toggle.textContent = item.status === "active" ? "禁用" : "启用";
+          toggle.addEventListener("click", () =>
+            updateStatus(item.id, item.status === "active" ? "disabled" : "active"),
+          );
+          actionCell.appendChild(toggle);
+          usersNode.appendChild(tr);
+        }
+        setStatus(`共 ${data.items.length} 个用户`);
+        loadFeedback();
+      }
+
+      async function loadFeedback() {
+        const response = await fetch("/api/admin/beta-feedback", { headers: headers() });
+        const data = await response.json();
+        if (!response.ok) return;
+        feedbackNode.innerHTML = "";
+        for (const item of data.items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${item.id}</td>
+            <td>${item.user_id}</td>
+            <td>${item.category}</td>
+            <td>${item.content}</td>
+            <td>${item.created_at}</td>
+          `;
+          feedbackNode.appendChild(tr);
+        }
+      }
+
+      async function updateStatus(id, status) {
+        const response = await fetch(`/api/admin/beta-users/${id}`, {
+          method: "PATCH",
+          headers: headers(),
+          body: JSON.stringify({ status }),
+        });
+        if (!response.ok) {
+          const data = await response.json();
+          setStatus(data.detail || "更新失败");
+          return;
+        }
+        loadUsers();
+      }
+
+      createForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(createForm);
+        const body = Object.fromEntries(form.entries());
+        const response = await fetch("/api/admin/beta-users", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(body),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setStatus(data.detail || "创建失败");
+          return;
+        }
+        createForm.reset();
+        setStatus(`已创建 ${data.username}`);
+        loadUsers();
+      });
+
+      document.querySelector("#save-token").addEventListener("click", () => {
+        localStorage.setItem("lulu-admin-token", tokenInput.value.trim());
+        setStatus("已保存");
+      });
+      document.querySelector("#refresh").addEventListener("click", loadUsers);
+      loadUsers().catch((error) => setStatus(error.message || "加载失败"));
+    </script>
+  </body>
+</html>

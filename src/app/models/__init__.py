@@ -2,6 +2,7 @@
 
 from app.models.base import Base
 from app.models.entities import (
+    BetaFeedback,
     BetaSession,
     BetaUser,
     IdSequence,
@@ -18,6 +19,7 @@ from app.models.entities import (
 __all__ = [
     "Base",
     "BetaSession",
+    "BetaFeedback",
     "BetaUser",
     "IdSequence",
     "LifeRecord",

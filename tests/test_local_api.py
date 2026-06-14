@@ -134,6 +134,45 @@ def test_admin_beta_users_requires_admin_token() -> None:
     assert ok.status_code == 503
 
 
+def test_admin_beta_feedback_requires_admin_token() -> None:
+    app.dependency_overrides[get_settings] = _settings_with_admin_token
+    client = TestClient(app)
+
+    missing = client.get("/api/admin/beta-feedback")
+    ok = client.get("/api/admin/beta-feedback", headers={"x-admin-token": "secret"})
+    app.dependency_overrides.clear()
+
+    assert missing.status_code == 401
+    assert ok.status_code == 503
+
+
+def test_beta_pages_are_served() -> None:
+    client = TestClient(app)
+
+    login = client.get("/login")
+    chat = client.get("/chat")
+    admin = client.get("/admin/beta-users")
+
+    assert login.status_code == 200
+    assert "生活管家 Agent" in login.text
+    assert chat.status_code == 200
+    assert "/api/beta/chat" in chat.text
+    assert admin.status_code == 200
+    assert "内测用户管理" in admin.text
+
+
+def test_beta_user_apis_require_database_before_auth() -> None:
+    app.dependency_overrides[get_settings] = _settings_without_admin_token
+    client = TestClient(app)
+
+    chat = client.post("/api/beta/chat", json={"message": "你好"})
+    feedback = client.post("/api/beta/feedback", json={"content": "不好用"})
+    app.dependency_overrides.clear()
+
+    assert chat.status_code == 503
+    assert feedback.status_code == 503
+
+
 def test_local_scheduler_run_once_handles_missing_database() -> None:
     app.dependency_overrides[get_settings] = _settings_without_admin_token
     client = TestClient(app)

@@ -238,29 +238,7 @@ async def local_chat(
     settings: Settings = SETTINGS_DEPENDENCY,
     session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
 ) -> LocalChatResponse:
-    reminder_service = ReminderService(session) if session is not None else None
-    memory_service = MemoryService(session) if session is not None else None
-    life_record_service = LifeRecordService(session) if session is not None else None
-    briefing_service = BriefingService(session) if session is not None else None
-    market_service = MarketService()
-    commodity_service = CommodityService()
-    web_search_service = WebSearchService(
-        provider=settings.web_search_provider,
-        tavily_api_key=settings.tavily_api_key,
-        google_api_key=settings.google_search_api_key,
-        google_cx=settings.google_search_cx,
-        timeout_seconds=settings.web_search_timeout_seconds,
-    )
-    service = LocalAgentService(
-        DeepSeekProvider(settings),
-        reminder_service=reminder_service,
-        memory_service=memory_service,
-        life_record_service=life_record_service,
-        briefing_service=briefing_service,
-        market_service=market_service,
-        commodity_service=commodity_service,
-        web_search_service=web_search_service,
-    )
+    service = build_local_agent_service(settings=settings, session=session)
     try:
         user_id, result = await _chat_with_optional_database(
             service=service,
@@ -801,6 +779,30 @@ async def _resolve_confirmation_message(*, session: AsyncSession, user_id: int |
             continue
         return item.content
     return "确认"
+
+
+def build_local_agent_service(
+    *,
+    settings: Settings,
+    session: AsyncSession | None,
+) -> LocalAgentService:
+    # Assemble the same Agent dependencies for debug and beta chat entry points.
+    return LocalAgentService(
+        DeepSeekProvider(settings),
+        reminder_service=ReminderService(session) if session is not None else None,
+        memory_service=MemoryService(session) if session is not None else None,
+        life_record_service=LifeRecordService(session) if session is not None else None,
+        briefing_service=BriefingService(session) if session is not None else None,
+        market_service=MarketService(),
+        commodity_service=CommodityService(),
+        web_search_service=WebSearchService(
+            provider=settings.web_search_provider,
+            tavily_api_key=settings.tavily_api_key,
+            google_api_key=settings.google_search_api_key,
+            google_cx=settings.google_search_cx,
+            timeout_seconds=settings.web_search_timeout_seconds,
+        ),
+    )
 
 
 async def _count(session: AsyncSession, query) -> int:

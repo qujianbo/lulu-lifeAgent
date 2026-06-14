@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>生活管家 Agent</title>
+    <style>
+      :root {
+        color: #1f2933;
+        background: #f7f9fc;
+        font-family:
+          Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: 64px 1fr auto;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+        background: #ffffff;
+        border-bottom: 1px solid #d9e1ea;
+      }
+      h1 {
+        margin: 0;
+        font-size: 22px;
+      }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .user {
+        color: #52606d;
+        font-size: 14px;
+      }
+      .ghost {
+        height: 36px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        color: #1f2933;
+        background: #ffffff;
+        padding: 0 12px;
+        cursor: pointer;
+      }
+      .messages {
+        width: min(980px, 100%);
+        margin: 0 auto;
+        padding: 24px;
+        overflow-y: auto;
+      }
+      .message {
+        display: flex;
+        margin: 0 0 16px;
+      }
+      .message.user {
+        justify-content: flex-end;
+      }
+      .bubble {
+        max-width: min(680px, 88vw);
+        padding: 14px 16px;
+        border-radius: 8px;
+        white-space: pre-wrap;
+        line-height: 1.7;
+        font-size: 16px;
+      }
+      .assistant .bubble {
+        background: #eef3f7;
+        border: 1px solid #d9e1ea;
+      }
+      .user .bubble {
+        color: #ffffff;
+        background: #2f6f63;
+      }
+      .composer {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        width: min(980px, 100%);
+        margin: 0 auto;
+        padding: 16px 24px 24px;
+        background: #f7f9fc;
+      }
+      textarea {
+        min-height: 54px;
+        max-height: 160px;
+        resize: vertical;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 14px;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      .primary {
+        width: 92px;
+        border: 0;
+        border-radius: 8px;
+        color: #ffffff;
+        background: #2f6f63;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: wait;
+        opacity: 0.72;
+      }
+      dialog {
+        width: min(520px, calc(100vw - 32px));
+        border: 1px solid #d9e1ea;
+        border-radius: 8px;
+        padding: 0;
+      }
+      dialog::backdrop {
+        background: rgba(31, 41, 51, 0.38);
+      }
+      .dialog-body {
+        padding: 20px;
+      }
+      .dialog-body h2 {
+        margin: 0 0 16px;
+        font-size: 20px;
+      }
+      select,
+      .feedback-text {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 10px;
+        font-size: 15px;
+      }
+      .feedback-text {
+        min-height: 132px;
+        margin-top: 12px;
+      }
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 16px 20px;
+        border-top: 1px solid #d9e1ea;
+      }
+      .status {
+        min-height: 20px;
+        color: #52606d;
+        font-size: 14px;
+      }
+      @media (max-width: 640px) {
+        header {
+          padding: 0 14px;
+        }
+        .user {
+          display: none;
+        }
+        .messages {
+          padding: 16px 12px;
+        }
+        .composer {
+          grid-template-columns: 1fr;
+          padding: 12px;
+        }
+        .primary {
+          width: 100%;
+          height: 44px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>生活管家 Agent</h1>
+      <div class="header-actions">
+        <span id="user" class="user"></span>
+        <button id="feedback-open" class="ghost" type="button">反馈</button>
+        <button id="logout" class="ghost" type="button">退出</button>
+      </div>
+    </header>
+    <main id="messages" class="messages" aria-live="polite"></main>
+    <form id="composer" class="composer">
+      <textarea id="message" placeholder="输入你的问题" maxlength="2000" required></textarea>
+      <button id="send" class="primary" type="submit">发送</button>
+    </form>
+    <dialog id="feedback-dialog">
+      <form id="feedback-form" method="dialog">
+        <div class="dialog-body">
+          <h2>提交反馈</h2>
+          <select id="feedback-category">
+            <option value="answer_quality">回答质量</option>
+            <option value="tool_result">工具结果</option>
+            <option value="usability">使用体验</option>
+            <option value="bug">异常问题</option>
+            <option value="general">其他</option>
+          </select>
+          <textarea id="feedback-content" class="feedback-text" maxlength="2000" required></textarea>
+          <div id="feedback-status" class="status"></div>
+        </div>
+        <div class="dialog-actions">
+          <button id="feedback-cancel" class="ghost" type="button">取消</button>
+          <button id="feedback-submit" class="primary" type="submit">提交</button>
+        </div>
+      </form>
+    </dialog>
+    <script>
+      const storageKey = "lulu-beta-chat-history";
+      const messagesNode = document.querySelector("#messages");
+      const composer = document.querySelector("#composer");
+      const messageInput = document.querySelector("#message");
+      const sendButton = document.querySelector("#send");
+      const userNode = document.querySelector("#user");
+      const logoutButton = document.querySelector("#logout");
+      const feedbackDialog = document.querySelector("#feedback-dialog");
+      const feedbackForm = document.querySelector("#feedback-form");
+      const feedbackOpen = document.querySelector("#feedback-open");
+      const feedbackCancel = document.querySelector("#feedback-cancel");
+      const feedbackStatus = document.querySelector("#feedback-status");
+
+      let history = JSON.parse(localStorage.getItem(storageKey) || "[]");
+
+      function saveHistory() {
+        localStorage.setItem(storageKey, JSON.stringify(history.slice(-80)));
+      }
+
+      function render() {
+        messagesNode.innerHTML = "";
+        for (const item of history) {
+          const row = document.createElement("div");
+          row.className = `message ${item.role}`;
+          const bubble = document.createElement("div");
+          bubble.className = "bubble";
+          bubble.textContent = item.content;
+          row.appendChild(bubble);
+          messagesNode.appendChild(row);
+        }
+        messagesNode.scrollTop = messagesNode.scrollHeight;
+      }
+
+      function append(role, content) {
+        history.push({ role, content, at: new Date().toISOString() });
+        saveHistory();
+        render();
+      }
+
+      async function requireLogin() {
+        const response = await fetch("/api/auth/me", { credentials: "include" });
+        if (!response.ok) {
+          window.location.href = "/login";
+          return;
+        }
+        const me = await response.json();
+        userNode.textContent = me.display_name || me.username;
+      }
+
+      composer.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const text = messageInput.value.trim();
+        if (!text) return;
+        append("user", text);
+        messageInput.value = "";
+        sendButton.disabled = true;
+        try {
+          const response = await fetch("/api/beta/chat", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text }),
+          });
+          if (response.status === 401) {
+            window.location.href = "/login";
+            return;
+          }
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.detail || "请求失败");
+          append("assistant", data.content || "");
+        } catch (error) {
+          append("assistant", error.message || "请求失败");
+        } finally {
+          sendButton.disabled = false;
+          messageInput.focus();
+        }
+      });
+
+      logoutButton.addEventListener("click", async () => {
+        await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+        window.location.href = "/login";
+      });
+
+      feedbackOpen.addEventListener("click", () => {
+        feedbackStatus.textContent = "";
+        feedbackDialog.showModal();
+      });
+
+      feedbackCancel.addEventListener("click", () => feedbackDialog.close());
+
+      feedbackForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const content = document.querySelector("#feedback-content").value.trim();
+        if (!content) return;
+        feedbackStatus.textContent = "提交中";
+        const response = await fetch("/api/beta/feedback", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content,
+            category: document.querySelector("#feedback-category").value,
+            page_url: window.location.href,
+            context: { recent_messages: history.slice(-6) },
+          }),
+        });
+        if (!response.ok) {
+          feedbackStatus.textContent = "提交失败";
+          return;
+        }
+        document.querySelector("#feedback-content").value = "";
+        feedbackStatus.textContent = "已提交";
+        setTimeout(() => feedbackDialog.close(), 450);
+      });
+
+      if (history.length === 0) {
+        append("assistant", "我在，可以开始验证。");
+      } else {
+        render();
+      }
+      requireLogin().catch(() => {
+        window.location.href = "/login";
+      });
+    </script>
+  </body>
+</html>

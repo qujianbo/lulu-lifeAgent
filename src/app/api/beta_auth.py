@@ -3,11 +3,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
-from app.models import BetaUser
+from app.models import BetaFeedback, BetaUser
 from app.services.beta_auth import BETA_SESSION_COOKIE, BetaAuthError, BetaAuthService
 
 router = APIRouter(tags=["beta-auth"])
@@ -60,6 +61,21 @@ class AdminBetaUserItem(BaseModel):
 
 class AdminBetaUsersResponse(BaseModel):
     items: list[AdminBetaUserItem]
+
+
+class AdminBetaFeedbackItem(BaseModel):
+    id: int
+    user_id: int
+    beta_user_id: int
+    category: str
+    content: str
+    page_url: str | None
+    status: str
+    created_at: str
+
+
+class AdminBetaFeedbackResponse(BaseModel):
+    items: list[AdminBetaFeedbackItem]
 
 
 def _require_database(session: AsyncSession | None) -> AsyncSession:
@@ -205,6 +221,23 @@ async def admin_reset_beta_user_password(
     return _admin_user_item(user)
 
 
+@router.get(
+    "/api/admin/beta-feedback",
+    response_model=AdminBetaFeedbackResponse,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_list_beta_feedback(
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminBetaFeedbackResponse:
+    db = _require_database(session)
+    result = await db.execute(
+        select(BetaFeedback).order_by(BetaFeedback.created_at.desc()).limit(100)
+    )
+    return AdminBetaFeedbackResponse(
+        items=[_admin_feedback_item(item) for item in result.scalars().all()]
+    )
+
+
 def _set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
     response.set_cookie(
         BETA_SESSION_COOKIE,
@@ -243,6 +276,19 @@ def _admin_user_item(user: BetaUser) -> AdminBetaUserItem:
         last_login_at=_iso(user.last_login_at),
         last_seen_at=_iso(user.last_seen_at),
         created_at=_iso(user.created_at) or datetime.now(UTC).isoformat(),
+    )
+
+
+def _admin_feedback_item(item: BetaFeedback) -> AdminBetaFeedbackItem:
+    return AdminBetaFeedbackItem(
+        id=item.id,
+        user_id=item.user_id,
+        beta_user_id=item.beta_user_id,
+        category=item.category,
+        content=item.content,
+        page_url=item.page_url,
+        status=item.status,
+        created_at=_iso(item.created_at) or datetime.now(UTC).isoformat(),
     )
 
 
