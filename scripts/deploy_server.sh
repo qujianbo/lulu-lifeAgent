@@ -68,6 +68,9 @@ git ls-files -z --cached --modified --others --exclude-standard \
   | COPYFILE_DISABLE=1 tar --format=ustar --null -T - -czf - \
   | ssh "$SSH_TARGET" "mkdir -p '$REMOTE_DIR' && tar -xzf - -C '$REMOTE_DIR'"
 
+echo "==> Cleaning platform metadata files"
+run_remote "find . -name '._*' -o -name '.DS_Store' | xargs -r rm -f"
+
 if [[ "$BUILD" -eq 1 ]]; then
   echo "==> Rebuilding app images"
   run_remote "docker compose build migrate app scheduler"
