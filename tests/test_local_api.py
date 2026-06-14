@@ -1,7 +1,9 @@
 import json
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
+from app.api.beta_auth import _cookie_secure
 from app.api.local import _is_confirmation_message
 from app.config import Settings, get_settings
 from app.main import app
@@ -144,6 +146,42 @@ def test_admin_beta_feedback_requires_admin_token() -> None:
 
     assert missing.status_code == 401
     assert ok.status_code == 503
+
+
+def test_beta_cookie_secure_follows_request_scheme() -> None:
+    settings = Settings(public_base_url="https://luluservice.cn", _env_file=None)
+    http_request = _request("http", "luluservice.cn", 8000)
+    https_request = _request("https", "luluservice.cn", 443)
+    forwarded_request = _request(
+        "http",
+        "127.0.0.1",
+        8000,
+        headers=[(b"x-forwarded-proto", b"https")],
+    )
+
+    assert not _cookie_secure(settings, http_request)
+    assert _cookie_secure(settings, https_request)
+    assert _cookie_secure(settings, forwarded_request)
+
+
+def _request(
+    scheme: str,
+    host: str,
+    port: int,
+    *,
+    headers: list[tuple[bytes, bytes]] | None = None,
+) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": scheme,
+            "server": (host, port),
+            "path": "/",
+            "query_string": b"",
+            "headers": headers or [],
+        }
+    )
 
 
 def test_beta_pages_are_served() -> None:

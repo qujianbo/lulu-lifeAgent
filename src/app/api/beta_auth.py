@@ -116,7 +116,7 @@ async def login(
             )
         except BetaAuthError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
-    _set_session_cookie(response, result.token, secure=_cookie_secure(settings))
+    _set_session_cookie(response, result.token, secure=_cookie_secure(settings, request))
     return _me_response(result.user)
 
 
@@ -250,8 +250,22 @@ def _set_session_cookie(response: Response, token: str, *, secure: bool) -> None
     )
 
 
-def _cookie_secure(settings: Settings) -> bool:
-    return bool(settings.public_base_url and str(settings.public_base_url).startswith("https://"))
+def _cookie_secure(settings: Settings, request: Request) -> bool:
+    # Use Secure cookies only when the current browser request is actually HTTPS.
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    if forwarded_proto:
+        return forwarded_proto == "https"
+    if request.url.scheme == "https":
+        return True
+    public_host = ""
+    if settings.public_base_url:
+        public_host = str(settings.public_base_url).removeprefix("https://").split("/", 1)[0]
+    return bool(
+        settings.public_base_url
+        and str(settings.public_base_url).startswith("https://")
+        and request.url.hostname == public_host
+        and request.url.port in {443, None}
+    )
 
 
 def _me_response(user: BetaUser) -> MeResponse:
