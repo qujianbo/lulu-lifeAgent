@@ -2,8 +2,10 @@ FROM python:3.11.15-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 WORKDIR /app
 
@@ -13,16 +15,14 @@ RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g; 
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.5.30 /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock README.md alembic.ini ./
-ENV UV_HTTP_TIMEOUT=120
-# Use Aliyun PyPI mirror to keep builds reliable on the lightweight server.
-RUN uv sync --index-url https://mirrors.aliyun.com/pypi/simple/ --frozen --no-dev --no-install-project
+COPY requirements.lock.txt ./
+# Install locked dependencies through pip because it fails loudly on poor network links.
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.lock.txt
 
 COPY src ./src
 COPY migrations ./migrations
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/src"
+ENV PYTHONPATH="/app/src"
 
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
