@@ -68,14 +68,19 @@ git ls-files -z --cached --modified --others --exclude-standard \
   | COPYFILE_DISABLE=1 tar --format=ustar --null -T - -czf - \
   | ssh "$SSH_TARGET" "mkdir -p '$REMOTE_DIR' && tar -xzf - -C '$REMOTE_DIR'"
 
+if [[ "$BUILD" -eq 1 ]]; then
+  echo "==> Rebuilding app images"
+  run_remote "docker compose build migrate app scheduler"
+fi
+
 if [[ "$SKIP_MIGRATE" -eq 0 ]]; then
   echo "==> Running database migrations"
   run_remote "docker compose run --rm migrate"
 fi
 
 if [[ "$BUILD" -eq 1 ]]; then
-  echo "==> Rebuilding and starting app services"
-  run_remote "docker compose up -d --build app scheduler"
+  echo "==> Starting rebuilt app services"
+  run_remote "docker compose up -d app scheduler"
 else
   echo "==> Starting and restarting app services"
   run_remote "docker compose up -d app scheduler && docker compose restart app scheduler"
