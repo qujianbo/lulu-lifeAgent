@@ -39,6 +39,44 @@ class User(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class BetaUser(BigIntPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "beta_users"
+    __table_args__ = (
+        Index("ix_beta_users_status", "status"),
+        Index("ix_beta_users_user_id", "user_id"),
+    )
+
+    # Logical reference to users.id; the beta account is only an auth wrapper.
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="tester")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    remark: Mapped[str | None] = mapped_column(Text)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BetaSession(BigIntPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "beta_sessions"
+    __table_args__ = (
+        Index("ix_beta_sessions_user_id", "user_id"),
+        Index("ix_beta_sessions_expires_at", "expires_at"),
+    )
+
+    # Logical reference to beta_users.id.
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    session_token_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class IdSequence(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "id_sequences"
 

@@ -1,0 +1,250 @@
+from datetime import UTC, datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import Settings, get_settings
+from app.dependencies import get_database_session
+from app.models import BetaUser
+from app.services.beta_auth import BETA_SESSION_COOKIE, BetaAuthError, BetaAuthService
+
+router = APIRouter(tags=["beta-auth"])
+SETTINGS_DEPENDENCY = Depends(get_settings)
+DATABASE_SESSION_DEPENDENCY = Depends(get_database_session)
+SESSION_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class MeResponse(BaseModel):
+    id: int
+    user_id: int
+    username: str
+    display_name: str | None
+    role: str
+    status: str
+
+
+class AdminCreateBetaUserRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str | None = Field(default=None, max_length=64)
+    role: str = Field(default="tester", max_length=32)
+    remark: str | None = Field(default=None, max_length=500)
+
+
+class AdminUpdateBetaUserRequest(BaseModel):
+    status: str = Field(pattern="^(active|disabled|invited)$")
+
+
+class AdminResetPasswordRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
+
+
+class AdminBetaUserItem(BaseModel):
+    id: int
+    user_id: int
+    username: str
+    display_name: str | None
+    role: str
+    status: str
+    last_login_at: str | None
+    last_seen_at: str | None
+    created_at: str
+
+
+class AdminBetaUsersResponse(BaseModel):
+    items: list[AdminBetaUserItem]
+
+
+def _require_database(session: AsyncSession | None) -> AsyncSession:
+    if session is None:
+        raise HTTPException(status_code=503, detail="database is not configured")
+    return session
+
+
+async def require_admin_token(
+    settings: Settings = SETTINGS_DEPENDENCY,
+    x_admin_token: Annotated[str | None, Header()] = None,
+) -> None:
+    # MVP 管理后台沿用 ADMIN_TOKEN，后续可替换成独立管理员账号。
+    if not settings.admin_token or x_admin_token != settings.admin_token:
+        raise HTTPException(status_code=401, detail="invalid admin token")
+
+
+ADMIN_DEPENDENCY = Depends(require_admin_token)
+
+
+@router.post("/api/auth/login", response_model=MeResponse)
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    settings: Settings = SETTINGS_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> MeResponse:
+    db = _require_database(session)
+    async with db.begin():
+        service = BetaAuthService(db)
+        try:
+            result = await service.login(
+                username=payload.username,
+                password=payload.password,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+        except BetaAuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+    _set_session_cookie(response, result.token, secure=_cookie_secure(settings))
+    return _me_response(result.user)
+
+
+@router.post("/api/auth/logout")
+async def logout(
+    response: Response,
+    session_token: Annotated[str | None, Cookie(alias=BETA_SESSION_COOKIE)] = None,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> dict[str, bool]:
+    db = _require_database(session)
+    async with db.begin():
+        await BetaAuthService(db).logout(session_token)
+    response.delete_cookie(BETA_SESSION_COOKIE, path="/")
+    return {"ok": True}
+
+
+@router.get("/api/auth/me", response_model=MeResponse)
+async def me(
+    session_token: Annotated[str | None, Cookie(alias=BETA_SESSION_COOKIE)] = None,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> MeResponse:
+    db = _require_database(session)
+    async with db.begin():
+        user = await BetaAuthService(db).authenticate_session(session_token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    return _me_response(user)
+
+
+@router.get(
+    "/api/admin/beta-users",
+    response_model=AdminBetaUsersResponse,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_list_beta_users(
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminBetaUsersResponse:
+    db = _require_database(session)
+    users = await BetaAuthService(db).list_beta_users()
+    return AdminBetaUsersResponse(items=[_admin_user_item(user) for user in users])
+
+
+@router.post(
+    "/api/admin/beta-users",
+    response_model=AdminBetaUserItem,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_create_beta_user(
+    payload: AdminCreateBetaUserRequest,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminBetaUserItem:
+    db = _require_database(session)
+    async with db.begin():
+        try:
+            user = await BetaAuthService(db).create_beta_user(
+                username=payload.username,
+                password=payload.password,
+                display_name=payload.display_name,
+                role=payload.role,
+                remark=payload.remark,
+            )
+        except BetaAuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _admin_user_item(user)
+
+
+@router.patch(
+    "/api/admin/beta-users/{user_id}",
+    response_model=AdminBetaUserItem,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_update_beta_user(
+    user_id: int,
+    payload: AdminUpdateBetaUserRequest,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminBetaUserItem:
+    db = _require_database(session)
+    async with db.begin():
+        try:
+            user = await BetaAuthService(db).set_status(user_id, payload.status)
+        except BetaAuthError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _admin_user_item(user)
+
+
+@router.post(
+    "/api/admin/beta-users/{user_id}/reset-password",
+    response_model=AdminBetaUserItem,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_reset_beta_user_password(
+    user_id: int,
+    payload: AdminResetPasswordRequest,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminBetaUserItem:
+    db = _require_database(session)
+    async with db.begin():
+        try:
+            user = await BetaAuthService(db).reset_password(user_id, payload.password)
+        except BetaAuthError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _admin_user_item(user)
+
+
+def _set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
+    response.set_cookie(
+        BETA_SESSION_COOKIE,
+        token,
+        max_age=SESSION_COOKIE_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _cookie_secure(settings: Settings) -> bool:
+    return bool(settings.public_base_url and str(settings.public_base_url).startswith("https://"))
+
+
+def _me_response(user: BetaUser) -> MeResponse:
+    return MeResponse(
+        id=user.id,
+        user_id=user.user_id,
+        username=user.username,
+        display_name=user.display_name,
+        role=user.role,
+        status=user.status,
+    )
+
+
+def _admin_user_item(user: BetaUser) -> AdminBetaUserItem:
+    return AdminBetaUserItem(
+        id=user.id,
+        user_id=user.user_id,
+        username=user.username,
+        display_name=user.display_name,
+        role=user.role,
+        status=user.status,
+        last_login_at=_iso(user.last_login_at),
+        last_seen_at=_iso(user.last_seen_at),
+        created_at=_iso(user.created_at) or datetime.now(UTC).isoformat(),
+    )
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None

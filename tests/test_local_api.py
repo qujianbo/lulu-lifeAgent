@@ -109,6 +109,31 @@ def test_local_api_requires_admin_token_when_configured(monkeypatch) -> None:
     assert ok.status_code == 200
 
 
+def test_beta_login_requires_database() -> None:
+    app.dependency_overrides[get_settings] = _settings_without_admin_token
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "tester", "password": "password123"},
+    )
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+
+
+def test_admin_beta_users_requires_admin_token() -> None:
+    app.dependency_overrides[get_settings] = _settings_with_admin_token
+    client = TestClient(app)
+
+    missing = client.get("/api/admin/beta-users")
+    ok = client.get("/api/admin/beta-users", headers={"x-admin-token": "secret"})
+    app.dependency_overrides.clear()
+
+    assert missing.status_code == 401
+    assert ok.status_code == 503
+
+
 def test_local_scheduler_run_once_handles_missing_database() -> None:
     app.dependency_overrides[get_settings] = _settings_without_admin_token
     client = TestClient(app)

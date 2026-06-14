@@ -2,6 +2,8 @@
 
 from app.models.base import Base
 from app.models.entities import (
+    BetaSession,
+    BetaUser,
     IdSequence,
     LifeRecord,
     MessageLog,
@@ -15,6 +17,8 @@ from app.models.entities import (
 
 __all__ = [
     "Base",
+    "BetaSession",
+    "BetaUser",
     "IdSequence",
     "LifeRecord",
     "MessageLog",
@@ -25,4 +29,3 @@ __all__ = [
     "UserProfile",
     "WechatToken",
 ]
-

@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, Request, Response
 
+from app.api.beta_auth import router as beta_auth_router
 from app.api.debug import router as debug_router
 from app.api.health import router as health_router
 from app.api.local import router as local_router
@@ -39,5 +40,6 @@ async def request_context_middleware(request: Request, call_next: Callable) -> R
 
 
 app.include_router(health_router)
+app.include_router(beta_auth_router)
 app.include_router(local_router)
 app.include_router(debug_router)
