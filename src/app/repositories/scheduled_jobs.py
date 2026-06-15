@@ -88,6 +88,83 @@ class ScheduledJobRepository:
         await self.session.flush()
         return job
 
+    async def create_email_job(
+        self,
+        *,
+        user_id: int,
+        email_type: str,
+        email: str,
+        subject: str,
+        content: str,
+        next_run_at: datetime,
+        ref_type: str | None = None,
+        ref_id: int | None = None,
+        max_retries: int = 3,
+        payload_extra: dict | None = None,
+        now: datetime | None = None,
+    ) -> ScheduledJob:
+        # Enqueue one email delivery job while reusing the scheduler table.
+        now = now or datetime.now(UTC)
+        job_type = f"email_{email_type}"
+        existing = None
+        if ref_type is not None and ref_id is not None:
+            existing = await self.get_pending_by_ref(
+                job_type=job_type,
+                ref_type=ref_type,
+                ref_id=ref_id,
+            )
+        if existing is not None:
+            existing.next_run_at = next_run_at
+            existing.payload = {
+                "email": email,
+                "subject": subject,
+                "content": content,
+                **(payload_extra or {}),
+            }
+            existing.updated_at = now
+            await self.session.flush()
+            return existing
+        job = ScheduledJob(
+            job_uuid=uuid4(),
+            job_type=job_type,
+            user_id=user_id,
+            ref_type=ref_type,
+            ref_id=ref_id,
+            payload={
+                "email": email,
+                "subject": subject,
+                "content": content,
+                **(payload_extra or {}),
+            },
+            next_run_at=next_run_at,
+            retry_count=0,
+            max_retries=max_retries,
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
+
+    async def get_email_daily_briefing_job(
+        self,
+        *,
+        user_id: int,
+        briefing_date: str,
+    ) -> ScheduledJob | None:
+        result = await self.session.execute(
+            select(ScheduledJob)
+            .where(
+                ScheduledJob.job_type == "email_daily_briefing",
+                ScheduledJob.user_id == user_id,
+                ScheduledJob.payload["briefing_date"].as_string() == briefing_date,
+            )
+            .order_by(ScheduledJob.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def force_due_reminder_job(
         self,
         *,
@@ -205,6 +282,8 @@ class ScheduledJobRepository:
         job.locked_at = None
         job.locked_by = None
         job.finished_at = now if job.status == "failed" else None
+        if job.status == "pending" and job.job_type.startswith("email_"):
+            job.next_run_at = _email_retry_at(retry_count=job.retry_count, now=now)
         job.updated_at = now
 
     async def cancel_pending_by_ref(
@@ -231,3 +310,11 @@ class ScheduledJobRepository:
             job.finished_at = now
             job.updated_at = now
         return len(jobs)
+
+
+def _email_retry_at(*, retry_count: int, now: datetime) -> datetime:
+    from datetime import timedelta
+
+    delays = [5, 15, 30]
+    index = max(0, min(retry_count - 1, len(delays) - 1))
+    return now + timedelta(minutes=delays[index])

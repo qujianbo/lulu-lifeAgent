@@ -4,8 +4,10 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import Settings, get_settings
 from app.models import ScheduledJob
 from app.repositories import ReminderRepository, ScheduledJobRepository, SubscriptionRepository
+from app.services.notifications import EmailNotificationService, NotificationDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +21,26 @@ class SchedulerRunResult:
 
 
 class SchedulerService:
-    def __init__(self, session: AsyncSession, *, worker_id: str = "scheduler") -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        worker_id: str = "scheduler",
+        settings: Settings | None = None,
+    ) -> None:
         self.session = session
         self.worker_id = worker_id
+        self.settings = settings or get_settings()
         self.jobs = ScheduledJobRepository(session)
         self.reminders = ReminderRepository(session)
         self.subscriptions = SubscriptionRepository(session)
+        self.email_notifications = EmailNotificationService(session, self.settings)
+        self.dispatcher = NotificationDispatcher(session, self.settings)
 
     async def run_once(self, *, limit: int = 20, now: datetime | None = None) -> SchedulerRunResult:
         # Poll pending jobs and process a bounded batch per tick.
         now = now or datetime.now(UTC)
+        await self.email_notifications.create_due_daily_briefing_jobs(now=now)
         jobs = await self.jobs.list_due_pending(now=now, limit=limit)
         succeeded = 0
         failed = 0
@@ -59,6 +71,8 @@ class SchedulerService:
             return await self._process_reminder_due(job=job, now=now)
         if job.job_type == "briefing_due":
             return await self._process_briefing_due(job=job, now=now)
+        if job.job_type.startswith("email_"):
+            return await self.dispatcher.send_email_job(job=job, now=now)
         logger.info("scheduled_job_skipped_unknown_type", extra={"job_id": job.id})
         return False
 
@@ -73,6 +87,7 @@ class SchedulerService:
             return False
 
         await self.reminders.mark_triggered(reminder_id=reminder.id, now=now)
+        await self.email_notifications.create_reminder_email_job(reminder=reminder, now=now)
         logger.info(
             "reminder_due_processed",
             extra={"job_id": job.id, "reminder_id": reminder.id, "user_id": reminder.user_id},

@@ -5,6 +5,7 @@ from app.models.entities import (
     BetaFeedback,
     BetaSession,
     BetaUser,
+    EmailSendLog,
     IdSequence,
     LifeRecord,
     MessageLog,
@@ -12,6 +13,7 @@ from app.models.entities import (
     ScheduledJob,
     Subscription,
     User,
+    UserContact,
     UserProfile,
     WechatToken,
 )
@@ -21,6 +23,7 @@ __all__ = [
     "BetaSession",
     "BetaFeedback",
     "BetaUser",
+    "EmailSendLog",
     "IdSequence",
     "LifeRecord",
     "MessageLog",
@@ -28,6 +31,7 @@ __all__ = [
     "ScheduledJob",
     "Subscription",
     "User",
+    "UserContact",
     "UserProfile",
     "WechatToken",
 ]

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Index,
@@ -93,6 +94,45 @@ class BetaFeedback(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     user_agent: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
     extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+
+
+class UserContact(BigIntPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "user_contacts"
+    __table_args__ = (
+        Index("ix_user_contacts_user_id_contact_type", "user_id", "contact_type"),
+        Index("ix_user_contacts_contact_type_status", "contact_type", "status"),
+    )
+
+    # Logical reference to users.id; contacts are validated in service code.
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    contact_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    contact_value: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EmailSendLog(BigIntPrimaryKeyMixin, Base):
+    __tablename__ = "email_send_logs"
+    __table_args__ = (
+        Index("ix_email_send_logs_user_id_created_at", "user_id", "created_at"),
+        Index("ix_email_send_logs_status_created_at", "status", "created_at"),
+        Index("ix_email_send_logs_job_id", "job_id"),
+    )
+
+    # job_id logically references scheduled_jobs.id.
+    job_id: Mapped[int | None] = mapped_column(BigInteger)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    email_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="smtp")
+    provider_message_id: Mapped[str | None] = mapped_column(String(255))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class IdSequence(BigIntPrimaryKeyMixin, TimestampMixin, Base):

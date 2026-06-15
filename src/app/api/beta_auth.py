@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
 from app.models import BetaFeedback, BetaUser
+from app.repositories import EmailSendLogRepository
 from app.services.beta_auth import BETA_SESSION_COOKIE, BetaAuthError, BetaAuthService
+from app.services.notifications import EmailNotificationService
 
 router = APIRouter(tags=["beta-auth"])
 SETTINGS_DEPENDENCY = Depends(get_settings)
@@ -57,6 +59,12 @@ class AdminBetaUserItem(BaseModel):
     last_login_at: str | None
     last_seen_at: str | None
     created_at: str
+    email: str | None = None
+    email_status: str = "missing"
+    email_enabled: bool = True
+    email_daily_briefing_enabled: bool = True
+    email_daily_briefing_time: str = "09:00"
+    email_reminder_enabled: bool = True
 
 
 class AdminBetaUsersResponse(BaseModel):
@@ -76,6 +84,30 @@ class AdminBetaFeedbackItem(BaseModel):
 
 class AdminBetaFeedbackResponse(BaseModel):
     items: list[AdminBetaFeedbackItem]
+
+
+class AdminEmailSettingsRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    enabled: bool = True
+    daily_briefing_time: str = Field(default="09:00", pattern=r"^\d{2}:\d{2}$")
+    reminder_enabled: bool = True
+
+
+class AdminEmailLogItem(BaseModel):
+    id: int
+    job_id: int | None
+    user_id: int
+    email: str
+    email_type: str
+    subject: str
+    status: str
+    error_message: str | None
+    latency_ms: int | None
+    created_at: str
+
+
+class AdminEmailLogsResponse(BaseModel):
+    items: list[AdminEmailLogItem]
 
 
 def _require_database(session: AsyncSession | None) -> AsyncSession:
@@ -152,11 +184,15 @@ async def me(
     dependencies=[ADMIN_DEPENDENCY],
 )
 async def admin_list_beta_users(
+    settings: Settings = SETTINGS_DEPENDENCY,
     session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
 ) -> AdminBetaUsersResponse:
     db = _require_database(session)
     users = await BetaAuthService(db).list_beta_users()
-    return AdminBetaUsersResponse(items=[_admin_user_item(user) for user in users])
+    email_service = EmailNotificationService(db, settings)
+    return AdminBetaUsersResponse(
+        items=[await _admin_user_item(user, email_service=email_service) for user in users]
+    )
 
 
 @router.post(
@@ -166,6 +202,7 @@ async def admin_list_beta_users(
 )
 async def admin_create_beta_user(
     payload: AdminCreateBetaUserRequest,
+    settings: Settings = SETTINGS_DEPENDENCY,
     session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
 ) -> AdminBetaUserItem:
     db = _require_database(session)
@@ -180,7 +217,7 @@ async def admin_create_beta_user(
             )
         except BetaAuthError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _admin_user_item(user)
+    return await _admin_user_item(user, email_service=EmailNotificationService(db, settings))
 
 
 @router.patch(
@@ -191,6 +228,7 @@ async def admin_create_beta_user(
 async def admin_update_beta_user(
     user_id: int,
     payload: AdminUpdateBetaUserRequest,
+    settings: Settings = SETTINGS_DEPENDENCY,
     session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
 ) -> AdminBetaUserItem:
     db = _require_database(session)
@@ -199,7 +237,7 @@ async def admin_update_beta_user(
             user = await BetaAuthService(db).set_status(user_id, payload.status)
         except BetaAuthError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _admin_user_item(user)
+    return await _admin_user_item(user, email_service=EmailNotificationService(db, settings))
 
 
 @router.post(
@@ -210,6 +248,7 @@ async def admin_update_beta_user(
 async def admin_reset_beta_user_password(
     user_id: int,
     payload: AdminResetPasswordRequest,
+    settings: Settings = SETTINGS_DEPENDENCY,
     session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
 ) -> AdminBetaUserItem:
     db = _require_database(session)
@@ -218,7 +257,61 @@ async def admin_reset_beta_user_password(
             user = await BetaAuthService(db).reset_password(user_id, payload.password)
         except BetaAuthError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _admin_user_item(user)
+    return await _admin_user_item(user, email_service=EmailNotificationService(db, settings))
+
+
+@router.put(
+    "/api/admin/beta-users/{user_id}/email",
+    response_model=AdminBetaUserItem,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_update_beta_user_email(
+    user_id: int,
+    payload: AdminEmailSettingsRequest,
+    settings: Settings = SETTINGS_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminBetaUserItem:
+    db = _require_database(session)
+    async with db.begin():
+        result = await db.execute(
+            select(BetaUser).where(BetaUser.id == user_id, BetaUser.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        await EmailNotificationService(db, settings).set_user_email(
+            user_id=user.user_id,
+            email=payload.email,
+            enabled=payload.enabled,
+            daily_briefing_time=payload.daily_briefing_time,
+            reminder_enabled=payload.reminder_enabled,
+        )
+    return await _admin_user_item(user, email_service=EmailNotificationService(db, settings))
+
+
+@router.post(
+    "/api/admin/beta-users/{user_id}/email/test",
+    response_model=AdminBetaUserItem,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_send_beta_user_test_email(
+    user_id: int,
+    settings: Settings = SETTINGS_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminBetaUserItem:
+    db = _require_database(session)
+    async with db.begin():
+        result = await db.execute(
+            select(BetaUser).where(BetaUser.id == user_id, BetaUser.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        try:
+            await EmailNotificationService(db, settings).create_test_email_job(user_id=user.user_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _admin_user_item(user, email_service=EmailNotificationService(db, settings))
 
 
 @router.get(
@@ -236,6 +329,19 @@ async def admin_list_beta_feedback(
     return AdminBetaFeedbackResponse(
         items=[_admin_feedback_item(item) for item in result.scalars().all()]
     )
+
+
+@router.get(
+    "/api/admin/email-logs",
+    response_model=AdminEmailLogsResponse,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+async def admin_list_email_logs(
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> AdminEmailLogsResponse:
+    db = _require_database(session)
+    items = await EmailSendLogRepository(db).list_recent(limit=100)
+    return AdminEmailLogsResponse(items=[_admin_email_log_item(item) for item in items])
 
 
 def _set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
@@ -279,7 +385,12 @@ def _me_response(user: BetaUser) -> MeResponse:
     )
 
 
-def _admin_user_item(user: BetaUser) -> AdminBetaUserItem:
+async def _admin_user_item(
+    user: BetaUser,
+    *,
+    email_service: EmailNotificationService,
+) -> AdminBetaUserItem:
+    email_settings = await email_service.get_user_email_settings(user_id=user.user_id)
     return AdminBetaUserItem(
         id=user.id,
         user_id=user.user_id,
@@ -290,6 +401,7 @@ def _admin_user_item(user: BetaUser) -> AdminBetaUserItem:
         last_login_at=_iso(user.last_login_at),
         last_seen_at=_iso(user.last_seen_at),
         created_at=_iso(user.created_at) or datetime.now(UTC).isoformat(),
+        **email_settings,
     )
 
 
@@ -302,6 +414,21 @@ def _admin_feedback_item(item: BetaFeedback) -> AdminBetaFeedbackItem:
         content=item.content,
         page_url=item.page_url,
         status=item.status,
+        created_at=_iso(item.created_at) or datetime.now(UTC).isoformat(),
+    )
+
+
+def _admin_email_log_item(item) -> AdminEmailLogItem:
+    return AdminEmailLogItem(
+        id=item.id,
+        job_id=item.job_id,
+        user_id=item.user_id,
+        email=item.email,
+        email_type=item.email_type,
+        subject=item.subject,
+        status=item.status,
+        error_message=item.error_message,
+        latency_ms=item.latency_ms,
         created_at=_iso(item.created_at) or datetime.now(UTC).isoformat(),
     )
 

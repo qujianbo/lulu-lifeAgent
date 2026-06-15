@@ -9,6 +9,7 @@ from app.config import Settings, get_settings
 from app.main import app
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMResponse
+from app.services.notifications.email import EmailNotifier
 
 
 async def _fake_chat(self, messages, *args, **kwargs) -> LLMResponse:
@@ -146,6 +147,31 @@ def test_admin_beta_feedback_requires_admin_token() -> None:
 
     assert missing.status_code == 401
     assert ok.status_code == 503
+
+
+def test_admin_email_logs_requires_admin_token() -> None:
+    app.dependency_overrides[get_settings] = _settings_with_admin_token
+    client = TestClient(app)
+
+    missing = client.get("/api/admin/email-logs")
+    ok = client.get("/api/admin/email-logs", headers={"x-admin-token": "secret"})
+    app.dependency_overrides.clear()
+
+    assert missing.status_code == 401
+    assert ok.status_code == 503
+
+
+def test_email_notifier_reports_disabled_email() -> None:
+    settings = Settings(email_enabled=False, _env_file=None)
+
+    result = EmailNotifier(settings).send_email(
+        to_email="user@example.com",
+        subject="测试",
+        text_content="测试内容",
+    )
+
+    assert result.status == "failed"
+    assert result.error_message == "email is disabled"
 
 
 def test_beta_cookie_secure_follows_request_scheme() -> None:

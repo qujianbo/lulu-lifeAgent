@@ -65,6 +65,7 @@
         border-collapse: collapse;
         background: #ffffff;
         border: 1px solid #d9e1ea;
+        margin-bottom: 24px;
       }
       th,
       td {
@@ -122,6 +123,9 @@
             <th>ID</th>
             <th>用户名</th>
             <th>显示名称</th>
+            <th>邮箱</th>
+            <th>邮件</th>
+            <th>简报时间</th>
             <th>状态</th>
             <th>最近登录</th>
             <th>操作</th>
@@ -142,12 +146,28 @@
         </thead>
         <tbody id="feedback"></tbody>
       </table>
+      <h2>最近邮件</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>用户ID</th>
+            <th>邮箱</th>
+            <th>类型</th>
+            <th>状态</th>
+            <th>主题</th>
+            <th>时间</th>
+          </tr>
+        </thead>
+        <tbody id="email-logs"></tbody>
+      </table>
     </main>
     <script>
       const tokenInput = document.querySelector("#admin-token");
       const statusNode = document.querySelector("#status");
       const usersNode = document.querySelector("#users");
       const feedbackNode = document.querySelector("#feedback");
+      const emailLogsNode = document.querySelector("#email-logs");
       const createForm = document.querySelector("#create-form");
       tokenInput.value = localStorage.getItem("lulu-admin-token") || "";
 
@@ -177,6 +197,14 @@
             <td>${item.id}</td>
             <td>${item.username}</td>
             <td>${item.display_name || ""}</td>
+            <td><input data-email="${item.id}" value="${item.email || ""}" placeholder="邮箱" /></td>
+            <td>
+              <select data-enabled="${item.id}">
+                <option value="true" ${item.email_enabled ? "selected" : ""}>开启</option>
+                <option value="false" ${!item.email_enabled ? "selected" : ""}>关闭</option>
+              </select>
+            </td>
+            <td><input data-time="${item.id}" value="${item.email_daily_briefing_time || "09:00"}" /></td>
             <td>${item.status}</td>
             <td>${item.last_login_at || ""}</td>
             <td></td>
@@ -188,11 +216,60 @@
           toggle.addEventListener("click", () =>
             updateStatus(item.id, item.status === "active" ? "disabled" : "active"),
           );
+          const saveEmail = document.createElement("button");
+          saveEmail.textContent = "保存邮箱";
+          saveEmail.addEventListener("click", () => saveEmailSettings(item.id));
+          const testEmail = document.createElement("button");
+          testEmail.className = "secondary";
+          testEmail.textContent = "测试邮件";
+          testEmail.addEventListener("click", () => sendTestEmail(item.id));
+          actionCell.appendChild(saveEmail);
+          actionCell.appendChild(document.createTextNode(" "));
+          actionCell.appendChild(testEmail);
+          actionCell.appendChild(document.createTextNode(" "));
           actionCell.appendChild(toggle);
           usersNode.appendChild(tr);
         }
         setStatus(`共 ${data.items.length} 个用户`);
         loadFeedback();
+        loadEmailLogs();
+      }
+
+      async function saveEmailSettings(id) {
+        const email = document.querySelector(`[data-email="${id}"]`).value.trim();
+        const enabled = document.querySelector(`[data-enabled="${id}"]`).value === "true";
+        const dailyTime = document.querySelector(`[data-time="${id}"]`).value.trim() || "09:00";
+        const response = await fetch(`/api/admin/beta-users/${id}/email`, {
+          method: "PUT",
+          headers: headers(),
+          body: JSON.stringify({
+            email,
+            enabled,
+            daily_briefing_time: dailyTime,
+            reminder_enabled: enabled,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setStatus(data.detail || "保存邮箱失败");
+          return;
+        }
+        setStatus(`已保存 ${data.username} 的邮箱`);
+        loadUsers();
+      }
+
+      async function sendTestEmail(id) {
+        const response = await fetch(`/api/admin/beta-users/${id}/email/test`, {
+          method: "POST",
+          headers: headers(),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setStatus(data.detail || "测试邮件创建失败");
+          return;
+        }
+        setStatus(`已创建 ${data.username} 的测试邮件任务`);
+        loadEmailLogs();
       }
 
       async function loadFeedback() {
@@ -210,6 +287,26 @@
             <td>${item.created_at}</td>
           `;
           feedbackNode.appendChild(tr);
+        }
+      }
+
+      async function loadEmailLogs() {
+        const response = await fetch("/api/admin/email-logs", { headers: headers() });
+        const data = await response.json();
+        if (!response.ok) return;
+        emailLogsNode.innerHTML = "";
+        for (const item of data.items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${item.id}</td>
+            <td>${item.user_id}</td>
+            <td>${item.email}</td>
+            <td>${item.email_type}</td>
+            <td>${item.status}</td>
+            <td>${item.subject}</td>
+            <td>${item.created_at}</td>
+          `;
+          emailLogsNode.appendChild(tr);
         }
       }
 

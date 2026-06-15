@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     google_search_api_key: str | None = None
     google_search_cx: str | None = None
 
+    smtp_host: str | None = None
+    smtp_port: int = 465
+    smtp_username: str | None = None
+    smtp_password: str | None = Field(default=None, repr=False)
+    smtp_from_email: str | None = None
+    smtp_from_name: str = "生活管家 Agent"
+    smtp_use_ssl: bool = True
+    smtp_use_starttls: bool = False
+    email_enabled: bool = False
+    email_default_daily_briefing_time: str = "09:00"
+    email_max_retries: int = 3
+
 
 @lru_cache
 def get_settings() -> Settings:
