@@ -2,6 +2,7 @@
 
 from app.models.base import Base
 from app.models.entities import (
+    AgentMemoryEvent,
     BetaFeedback,
     BetaSession,
     BetaUser,
@@ -20,6 +21,7 @@ from app.models.entities import (
 
 __all__ = [
     "Base",
+    "AgentMemoryEvent",
     "BetaSession",
     "BetaFeedback",
     "BetaUser",

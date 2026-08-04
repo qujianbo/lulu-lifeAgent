@@ -85,6 +85,7 @@ async def beta_chat(
         tool_result=result.tool_result,
         planner=result.planner,
         tool_trace=result.tool_trace,
+        memory_trace=result.memory_trace,
     )
 
 

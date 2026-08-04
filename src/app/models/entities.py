@@ -135,6 +135,28 @@ class EmailSendLog(BigIntPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class AgentMemoryEvent(BigIntPrimaryKeyMixin, Base):
+    __tablename__ = "agent_memory_events"
+    __table_args__ = (
+        Index("ix_agent_memory_events_user_id_created_at", "user_id", "created_at"),
+        Index("ix_agent_memory_events_event_type_status", "event_type", "status"),
+        Index("ix_agent_memory_events_provider_memory_id", "provider_memory_id"),
+    )
+
+    # user_id is a logical reference to users.id; memory vectors live in Qdrant.
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_memory_id: Mapped[str | None] = mapped_column(String(128))
+    query_text: Mapped[str | None] = mapped_column(Text)
+    content: Mapped[str | None] = mapped_column(Text)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class IdSequence(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "id_sequences"
 

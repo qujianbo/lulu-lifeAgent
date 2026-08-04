@@ -3,6 +3,12 @@ from decimal import Decimal
 
 from app.agent.graph import LifeAgentGraph
 from app.agent.tools import builtin
+from app.services.agent_memory import (
+    MemoryDeleteResult,
+    MemoryItem,
+    MemorySearchResult,
+    MemoryWriteResult,
+)
 from app.services.briefing.rss import BriefingArticle
 from app.services.commodities import CommodityQuote, CommodityQuoteResult
 from app.services.llm.types import LLMResponse
@@ -42,7 +48,7 @@ class FakeLLM:
                 decision.update(
                     action="call_tool",
                     tool_name="memory_delete",
-                    arguments={"raw_text": user_message},
+                    arguments={"query": user_message},
                     domain="memory",
                 )
             if "记账" in user_message:
@@ -127,25 +133,35 @@ class FakeLLM:
 
 
 class FakeMemoryService:
-    async def list_active(self, *, user_id: int, limit: int = 30):
-        return []
+    def __init__(self) -> None:
+        self.search_queries: list[str] = []
+        self.write_count = 0
 
-    async def save_from_text(self, *, user_id: int, text: str):
-        class Result:
-            status = "saved"
-            message = "我记住了。"
-            needs_clarification = False
-            profile = None
+    async def search(self, *, user_id: int, query: str, limit: int | None = None):
+        self.search_queries.append(query)
+        return MemorySearchResult(
+            items=[
+                MemoryItem(
+                    memory_id="mem_1",
+                    content="用户资讯更关注 AI 和财经。",
+                    score=0.92,
+                )
+            ],
+            latency_ms=1,
+        )
 
-        return Result()
+    async def add_conversation(self, *, user_id: int, messages: list):
+        self.write_count += 1
+        return MemoryWriteResult(status="succeeded")
 
-    async def delete_from_text(self, *, user_id: int, text: str):
-        class Result:
-            status = "deleted"
-            message = "记忆已删除。"
-            profile = None
+    async def add_manual(self, *, user_id: int, content: str):
+        return MemoryWriteResult(
+            status="succeeded",
+            items=[MemoryItem(memory_id="mem_2", content=content)],
+        )
 
-        return Result()
+    async def delete(self, *, user_id: int, query: str | None = None, memory_id: str | None = None):
+        return MemoryDeleteResult(status="deleted", message="记忆已删除。")
 
 
 class FakeLifeRecordService:
@@ -290,8 +306,9 @@ async def test_agent_graph_routes_memory_update() -> None:
     assert result["intent"] == "memory_save"
     assert result["planner"]["tool_name"] == "memory_save"
     assert result["tool_result"]["tool"] == "memory_save"
-    assert result["tool_result"]["status"] == "saved"
+    assert result["tool_result"]["status"] == "succeeded"
     assert result["final_response"] == "图回复正常"
+    assert result["context"]["memory_trace"]["count"] == 1
 
 
 async def test_agent_graph_routes_memory_delete() -> None:

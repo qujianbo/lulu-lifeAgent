@@ -2,12 +2,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agent.graph import LifeAgentGraph
+from app.services.agent_memory import AgentMemoryService
 from app.services.briefing import BriefingService
 from app.services.commodities import CommodityService
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.markets import MarketService
-from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
 from app.services.web_search import WebSearchService
 
@@ -22,6 +22,7 @@ class LocalAgentResult:
     tool_result: dict[str, Any] | None = None
     planner: dict[str, Any] | None = None
     tool_trace: list[dict[str, Any]] | None = None
+    memory_trace: dict[str, Any] | None = None
 
 
 class LocalAgentService:
@@ -30,7 +31,7 @@ class LocalAgentService:
         llm: DeepSeekProvider,
         *,
         reminder_service: ReminderService | None = None,
-        memory_service: MemoryService | None = None,
+        memory_service: AgentMemoryService | None = None,
         life_record_service: LifeRecordService | None = None,
         briefing_service: BriefingService | None = None,
         market_service: MarketService | None = None,
@@ -60,4 +61,5 @@ class LocalAgentService:
             tool_result=state.get("tool_result"),
             planner=state.get("planner"),
             tool_trace=state.get("tool_trace") or [],
+            memory_trace=(state.get("context") or {}).get("memory_trace"),
         )

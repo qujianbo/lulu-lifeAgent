@@ -4,13 +4,13 @@ from pydantic import BaseModel, Field
 
 from app.agent.tools.base import AgentTool, ToolContext, ToolResult
 from app.agent.tools.registry import ToolRegistry
+from app.services.agent_memory import AgentMemoryService
 from app.services.briefing import BriefingService
 from app.services.briefing.rss import fetch_rss_articles
 from app.services.commodities import CommodityService
 from app.services.life_records import LifeRecordService
 from app.services.life_records.service import infer_record_type_for_query
 from app.services.markets import MarketService
-from app.services.memory import MemoryService
 from app.services.reminders.service import ReminderService
 from app.services.web_search import WebSearchService
 
@@ -60,7 +60,13 @@ class MemoQueryArgs(BaseModel):
 
 
 class MemoryQueryArgs(BaseModel):
-    limit: int = Field(default=30, ge=1, le=50)
+    query: str | None = Field(default=None, max_length=500)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class MemoryDeleteArgs(BaseModel):
+    query: str | None = Field(default=None, max_length=500)
+    memory_id: str | None = Field(default=None, max_length=128)
 
 
 class BriefingPreviewArgs(BaseModel):
@@ -79,7 +85,7 @@ class WebSearchArgs(BaseModel):
 def build_tool_registry(
     *,
     reminder_service: ReminderService | None = None,
-    memory_service: MemoryService | None = None,
+    memory_service: AgentMemoryService | None = None,
     life_record_service: LifeRecordService | None = None,
     briefing_service: BriefingService | None = None,
     market_service: MarketService | None = None,
@@ -165,7 +171,7 @@ def build_tool_registry(
         AgentTool(
             name="memory_delete",
             description="删除或忘掉某条长期记忆、偏好或个人信息。",
-            args_model=RawTextArgs,
+            args_model=MemoryDeleteArgs,
             handler=lambda args, ctx: _memory_delete(memory_service, args, ctx),
         ),
         AgentTool(
@@ -388,55 +394,65 @@ async def _memo_query(
 
 
 async def _memory_save(
-    service: MemoryService | None,
+    service: AgentMemoryService | None,
     args: BaseModel,
     ctx: ToolContext,
 ) -> ToolResult:
     if service is None or ctx.user_id is None:
         return _missing_database("memory_save", "记忆工具需要数据库连接。")
     parsed = args if isinstance(args, RawTextArgs) else RawTextArgs.model_validate(args)
-    result = await service.save_from_text(user_id=ctx.user_id, text=parsed.raw_text)
+    result = await service.add_manual(user_id=ctx.user_id, content=parsed.raw_text)
     data = {
         "tool": "memory_save",
         "status": result.status,
-        "message": result.message,
-        "memory": _memory_item(result.profile) if result.profile else None,
+        "message": "我记住了。" if result.status == "succeeded" else "记忆保存失败。",
+        "items": [_memory_item(item) for item in result.items],
+        "error_message": result.error_message,
     }
-    return ToolResult("memory_save", _tool_status(result.status), result.message, data)
+    return ToolResult("memory_save", _tool_status(result.status), data["message"], data)
 
 
 async def _memory_query(
-    service: MemoryService | None,
+    service: AgentMemoryService | None,
     args: BaseModel,
     ctx: ToolContext,
 ) -> ToolResult:
     if service is None or ctx.user_id is None:
         return _missing_database("memory_query", "记忆查询工具需要数据库连接。")
     parsed = args if isinstance(args, MemoryQueryArgs) else MemoryQueryArgs.model_validate(args)
-    memories = await service.list_active(user_id=ctx.user_id, limit=parsed.limit)
+    if parsed.query:
+        result = await service.search(user_id=ctx.user_id, query=parsed.query, limit=parsed.limit)
+    else:
+        result = await service.list(user_id=ctx.user_id, limit=parsed.limit)
     data = {
         "tool": "memory_query",
-        "status": "success",
-        "count": len(memories),
-        "items": [_memory_item(item) for item in memories],
+        "status": result.status,
+        "count": len(result.items),
+        "items": [_memory_item(item) for item in result.items],
+        "error_message": result.error_message,
     }
-    return ToolResult("memory_query", "success", "记忆查询成功。", data)
+    return ToolResult("memory_query", _tool_status(result.status), "记忆查询完成。", data)
 
 
 async def _memory_delete(
-    service: MemoryService | None,
+    service: AgentMemoryService | None,
     args: BaseModel,
     ctx: ToolContext,
 ) -> ToolResult:
     if service is None or ctx.user_id is None:
         return _missing_database("memory_delete", "记忆删除工具需要数据库连接。")
-    parsed = args if isinstance(args, RawTextArgs) else RawTextArgs.model_validate(args)
-    result = await service.delete_from_text(user_id=ctx.user_id, text=parsed.raw_text)
+    parsed = args if isinstance(args, MemoryDeleteArgs) else MemoryDeleteArgs.model_validate(args)
+    result = await service.delete(
+        user_id=ctx.user_id,
+        query=parsed.query,
+        memory_id=parsed.memory_id,
+    )
     data = {
         "tool": "memory_delete",
         "status": result.status,
         "message": result.message,
-        "memory": _memory_item(result.profile) if result.profile else None,
+        "items": [_memory_item(item) for item in result.items],
+        "error_message": result.error_message,
     }
     return ToolResult("memory_delete", _tool_status(result.status), result.message, data)
 
@@ -611,22 +627,23 @@ def _memo_item(item) -> dict[str, Any]:
 
 def _memory_item(item) -> dict[str, Any]:
     return {
-        "id": item.id,
-        "profile_key": item.profile_key,
-        "profile_value": item.profile_value,
+        "memory_id": item.memory_id,
+        "content": item.content,
+        "score": item.score,
+        "metadata": item.metadata,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
     }
 
 
 def _briefing_topics(memories: list[dict[str, Any]]) -> list[str] | None:
+    known_topics = ["AI", "科技", "财经", "商业", "体育", "娱乐", "国际", "国内", "健康", "天气"]
+    matched: list[str] = []
     for item in memories:
-        if item.get("profile_key") == "briefing.topics":
-            return [
-                topic.strip()
-                for topic in str(item.get("profile_value", "")).split(",")
-                if topic.strip()
-            ]
-    return None
+        content = str(item.get("content", ""))
+        for topic in known_topics:
+            if topic.lower() in content.lower() and topic not in matched:
+                matched.append(topic)
+    return matched or None
 
 
 def _missing_database(tool_name: str, message: str) -> ToolResult:
@@ -642,12 +659,21 @@ def _missing_database(tool_name: str, message: str) -> ToolResult:
 def _tool_status(
     status: str,
 ) -> Literal["success", "needs_clarification", "not_found", "failed", "dry_run"]:
-    if status in {"success", "created", "saved", "deleted", "completed", "subscribed", "preview"}:
+    if status in {
+        "success",
+        "created",
+        "saved",
+        "succeeded",
+        "deleted",
+        "completed",
+        "subscribed",
+        "preview",
+    }:
         return "success"
     if status in {"needs_clarification", "needs_confirmation"}:
         return "needs_clarification"
     if status == "not_found":
         return "not_found"
-    if status == "dry_run":
+    if status in {"dry_run", "skipped"}:
         return "dry_run"
     return "failed"

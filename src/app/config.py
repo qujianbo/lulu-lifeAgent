@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +52,33 @@ class Settings(BaseSettings):
     email_enabled: bool = False
     email_default_daily_briefing_time: str = "09:00"
     email_max_retries: int = 3
+
+    memory_provider: Literal["mem0"] = "mem0"
+    memory_enabled: bool = False
+    memory_write_enabled: bool = False
+    memory_search_top_k: int = 5
+    memory_timeout_seconds: int = 8
+
+    mem0_llm_provider: str = "deepseek"
+    mem0_llm_model: str = "deepseek-chat"
+    mem0_llm_base_url: str = "https://api.deepseek.com"
+    mem0_llm_api_key: str | None = Field(default=None, repr=False)
+    mem0_embedder_provider: str | None = None
+    mem0_embedder_model: str | None = None
+    mem0_embedder_api_key: str | None = Field(default=None, repr=False)
+    mem0_embedding_dims: int | None = None
+
+    qdrant_host: str = "qdrant"
+    qdrant_port: int = 6333
+    qdrant_collection: str = "life_agent_memories"
+    qdrant_distance: str = "Cosine"
+
+    @field_validator("public_base_url", "mem0_embedding_dims", mode="before")
+    @classmethod
+    def empty_optional_config_to_none(cls, value: str | None) -> str | None:
+        if value == "":
+            return None
+        return value
 
 
 @lru_cache

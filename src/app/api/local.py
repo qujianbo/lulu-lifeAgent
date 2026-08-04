@@ -13,6 +13,7 @@ from app.agent.planner import PlannerError
 from app.config import Settings, get_settings
 from app.dependencies import get_database_session
 from app.models import (
+    AgentMemoryEvent,
     LifeRecord,
     MessageLog,
     Reminder,
@@ -22,6 +23,7 @@ from app.models import (
     UserProfile,
 )
 from app.repositories import MessageLogRepository, ScheduledJobRepository, UserRepository
+from app.services.agent_memory import AgentMemoryService
 from app.services.briefing import BriefingService
 from app.services.briefing.rss import fetch_rss_articles, split_rss_urls
 from app.services.commodities import CommodityService
@@ -63,6 +65,7 @@ class LocalChatResponse(BaseModel):
     tool_result: dict[str, Any] | None = None
     planner: dict[str, Any] | None = None
     tool_trace: list[dict[str, Any]] | None = None
+    memory_trace: dict[str, Any] | None = None
 
 
 class LocalReminderItem(BaseModel):
@@ -113,6 +116,18 @@ class LocalMessageLogItem(BaseModel):
     created_at: str
 
 
+class LocalMemoryEventItem(BaseModel):
+    id: int
+    event_type: str
+    provider_memory_id: str | None
+    query_text: str | None
+    content: str | None
+    status: str
+    error_message: str | None
+    latency_ms: int | None
+    created_at: str
+
+
 class LocalBriefingArticleItem(BaseModel):
     title: str
     link: str | None
@@ -137,6 +152,11 @@ class LocalSubscriptionsResponse(BaseModel):
 class LocalMessageLogsResponse(BaseModel):
     user_id: int | None
     items: list[LocalMessageLogItem]
+
+
+class LocalMemoryEventsResponse(BaseModel):
+    user_id: int | None
+    items: list[LocalMemoryEventItem]
 
 
 class LocalBriefingPreviewResponse(BaseModel):
@@ -257,6 +277,7 @@ async def local_chat(
         tool_result=result.tool_result,
         planner=result.planner,
         tool_trace=result.tool_trace,
+        memory_trace=result.memory_trace,
     )
 
 
@@ -304,6 +325,7 @@ async def _chat_with_optional_database(
                         "planner": result.planner,
                         "tool_result": result.tool_result,
                         "tool_trace": result.tool_trace,
+                        "memory_trace": result.memory_trace,
                         "source": "local_debug",
                     },
                 )
@@ -494,6 +516,49 @@ async def local_message_logs(
                 created_at=item.created_at.isoformat(),
             )
             for item in logs
+        ],
+    )
+
+
+@router.get("/memory-events", response_model=LocalMemoryEventsResponse)
+async def local_memory_events(
+    user_id: int | None = None,
+    _: None = ADMIN_DEPENDENCY,
+    session: AsyncSession | None = DATABASE_SESSION_DEPENDENCY,
+) -> LocalMemoryEventsResponse:
+    if session is None:
+        return LocalMemoryEventsResponse(user_id=None, items=[])
+    try:
+        async with session.begin():
+            resolved_user_id = await _resolve_debug_user_id(session=session, user_id=user_id)
+            query = (
+                select(AgentMemoryEvent)
+                .order_by(AgentMemoryEvent.id.desc())
+                .limit(DEBUG_LIST_LIMIT)
+            )
+            if resolved_user_id is not None:
+                query = query.where(AgentMemoryEvent.user_id == resolved_user_id)
+            result = await session.execute(query)
+            events = list(result.scalars().all())
+    except Exception as exc:
+        # Keep the debug page usable even when local DB is not running.
+        logger.warning("local_memory_events_database_fallback", extra={"_error": str(exc)})
+        return LocalMemoryEventsResponse(user_id=user_id, items=[])
+    return LocalMemoryEventsResponse(
+        user_id=resolved_user_id,
+        items=[
+            LocalMemoryEventItem(
+                id=item.id,
+                event_type=item.event_type,
+                provider_memory_id=item.provider_memory_id,
+                query_text=item.query_text,
+                content=item.content,
+                status=item.status,
+                error_message=item.error_message,
+                latency_ms=item.latency_ms,
+                created_at=item.created_at.isoformat(),
+            )
+            for item in events
         ],
     )
 
@@ -790,7 +855,9 @@ def build_local_agent_service(
     return LocalAgentService(
         DeepSeekProvider(settings),
         reminder_service=ReminderService(session) if session is not None else None,
-        memory_service=MemoryService(session) if session is not None else None,
+        memory_service=(
+            AgentMemoryService(settings, session=session) if session is not None else None
+        ),
         life_record_service=LifeRecordService(session) if session is not None else None,
         briefing_service=BriefingService(session) if session is not None else None,
         market_service=MarketService(),

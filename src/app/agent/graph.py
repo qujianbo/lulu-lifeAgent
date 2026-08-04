@@ -10,13 +10,17 @@ from app.agent.schemas import ToolCallTrace
 from app.agent.state import AgentState
 from app.agent.tools.base import ToolContext
 from app.agent.tools.builtin import build_tool_registry
+from app.services.agent_memory import (
+    AgentMemoryService,
+    MemoryMessage,
+    format_memories_for_prompt,
+)
 from app.services.briefing import BriefingService
 from app.services.commodities import CommodityService
 from app.services.life_records import LifeRecordService
 from app.services.llm.deepseek import DeepSeekProvider
 from app.services.llm.types import LLMMessage
 from app.services.markets import MarketService
-from app.services.memory import MemoryService, format_memories_for_prompt
 from app.services.reminders.service import ReminderService
 from app.services.web_search import WebSearchService
 
@@ -38,7 +42,7 @@ class LifeAgentGraph:
         llm: DeepSeekProvider,
         *,
         reminder_service: ReminderService | None = None,
-        memory_service: MemoryService | None = None,
+        memory_service: AgentMemoryService | None = None,
         life_record_service: LifeRecordService | None = None,
         briefing_service: BriefingService | None = None,
         market_service: MarketService | None = None,
@@ -103,10 +107,19 @@ class LifeAgentGraph:
         user_id = state.get("user_id")
         context: dict[str, Any] = {"memory_loaded": False, "reminders_loaded": False}
         if self.memory_service is not None and user_id is not None:
-            memories = await self.memory_service.list_active(user_id=user_id, limit=20)
+            memories = await self.memory_service.search(
+                user_id=user_id,
+                query=state.get("sanitized_message", ""),
+            )
             context["memory_loaded"] = True
-            context["memories"] = _memory_items(memories)
-            context["memory_prompt"] = format_memories_for_prompt(memories)
+            context["memories"] = [item.model_dump() for item in memories.items]
+            context["memory_prompt"] = format_memories_for_prompt(memories.items)
+            context["memory_trace"] = {
+                "status": memories.status,
+                "latency_ms": memories.latency_ms,
+                "count": len(memories.items),
+                "error_message": memories.error_message,
+            }
         return AgentState(context=context)
 
     async def planner(self, state: AgentState) -> AgentState:
@@ -181,22 +194,28 @@ class LifeAgentGraph:
 
         planner = state.get("planner") or {}
         if planner.get("action") == "ask_clarification":
-            return AgentState(
-                final_response=planner.get("question") or "我还需要一点信息才能继续。",
-                intent=intent,
-                model="none",
-                provider="local",
-                latency_ms=0,
+            return await self._with_memory_write(
+                state,
+                AgentState(
+                    final_response=planner.get("question") or "我还需要一点信息才能继续。",
+                    intent=intent,
+                    model="none",
+                    provider="local",
+                    latency_ms=0,
+                ),
             )
 
         direct_response = _direct_tool_response(state)
         if direct_response is not None:
-            return AgentState(
-                final_response=direct_response,
-                intent=intent,
-                model="none",
-                provider="local",
-                latency_ms=0,
+            return await self._with_memory_write(
+                state,
+                AgentState(
+                    final_response=direct_response,
+                    intent=intent,
+                    model="none",
+                    provider="local",
+                    latency_ms=0,
+                ),
             )
 
         response = await self.llm.chat(
@@ -207,13 +226,41 @@ class LifeAgentGraph:
             temperature=0.2,
             max_tokens=512,
         )
-        return AgentState(
-            final_response=response.content,
-            intent=intent,
-            model=response.model,
-            provider=response.provider,
-            latency_ms=response.latency_ms,
+        return await self._with_memory_write(
+            state,
+            AgentState(
+                final_response=response.content,
+                intent=intent,
+                model=response.model,
+                provider=response.provider,
+                latency_ms=response.latency_ms,
+            ),
         )
+
+    async def _with_memory_write(self, state: AgentState, result: AgentState) -> AgentState:
+        if self.memory_service is None or state.get("user_id") is None:
+            return result
+        user_text = state.get("sanitized_message", "")
+        assistant_text = result.get("final_response", "")
+        if not user_text or not assistant_text:
+            return result
+        try:
+            write_result = await self.memory_service.add_conversation(
+                user_id=state["user_id"],
+                messages=[
+                    MemoryMessage(role="user", content=user_text, occurred_at=datetime.now(UTC)),
+                    MemoryMessage(
+                        role="assistant",
+                        content=assistant_text,
+                        occurred_at=datetime.now(UTC),
+                    ),
+                ],
+            )
+        except Exception:
+            return result
+        context = dict(state.get("context") or {})
+        context["memory_write_trace"] = write_result.model_dump()
+        return AgentState(**result, context=context)
 
 
 def _build_user_prompt(state: AgentState) -> str:
