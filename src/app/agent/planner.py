@@ -90,6 +90,7 @@ class ToolCallingPlanner:
         previous_error: str | None = None,
     ) -> PlannerDecision:
         last_error: Exception | None = None
+        aggregate_metrics: dict[str, int | float] = {}
         for _attempt in range(self.max_attempts):
             prompt = self._build_prompt(
                 message=message,
@@ -107,8 +108,12 @@ class ToolCallingPlanner:
                     temperature=0,
                     max_tokens=600,
                 )
+                aggregate_metrics = _merge_metrics(
+                    aggregate_metrics, response.metrics()
+                )
                 decision = parse_planner_decision(response.content)
                 self._validate_decision(decision)
+                decision.llm_metrics = aggregate_metrics
                 return decision
             except Exception as exc:
                 # Retry model, JSON, Pydantic and tool-schema failures.
@@ -174,3 +179,17 @@ def _bounded_history(
             break
     selected.reverse()
     return selected
+
+
+def _merge_metrics(
+    *items: dict[str, int | float],
+) -> dict[str, int | float]:
+    keys = {
+        "llm_calls",
+        "llm_latency_ms",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "estimated_cost_usd",
+    }
+    return {key: sum(item.get(key, 0) for item in items) for key in keys}

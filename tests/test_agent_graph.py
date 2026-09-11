@@ -38,6 +38,9 @@ class FakeLLM:
                     provider="fake",
                     latency_ms=1,
                     finish_reason="stop",
+                    input_tokens=30,
+                    output_tokens=10,
+                    total_tokens=40,
                 )
             if "提醒" in user_message or "待办" in user_message:
                 decision.update(
@@ -131,6 +134,9 @@ class FakeLLM:
                 provider="fake",
                 latency_ms=1,
                 finish_reason="stop",
+                input_tokens=20,
+                output_tokens=5,
+                total_tokens=25,
             )
         return LLMResponse(
             content="图回复正常",
@@ -473,6 +479,14 @@ async def test_agent_graph_routes_general_qa_without_tool() -> None:
 
     assert result["intent"] == "general_qa"
     assert result["planner_action"] == "final_answer"
+    assert result["llm_metrics"] == {
+        "llm_calls": 2,
+        "llm_latency_ms": 4,
+        "input_tokens": 20,
+        "output_tokens": 5,
+        "total_tokens": 25,
+        "estimated_cost_usd": 0,
+    }
     assert result.get("tool_result") is None
     assert result["final_response"] == "图回复正常"
 
@@ -525,6 +539,9 @@ async def test_agent_graph_can_chain_multiple_tools() -> None:
                     provider="fake",
                     latency_ms=1,
                     finish_reason="stop",
+                    input_tokens=30,
+                    output_tokens=10,
+                    total_tokens=40,
                 )
             payload = json.loads(messages[-1].content)
             step = len(payload.get("tool_trace") or [])
@@ -559,6 +576,9 @@ async def test_agent_graph_can_chain_multiple_tools() -> None:
                 provider="fake",
                 latency_ms=1,
                 finish_reason="stop",
+                input_tokens=20,
+                output_tokens=5,
+                total_tokens=25,
             )
 
     result = await LifeAgentGraph(
@@ -570,6 +590,14 @@ async def test_agent_graph_can_chain_multiple_tools() -> None:
         "market_hotspots",
     ]
     assert result["planner_action"] == "final_answer"
+    assert result["llm_metrics"] == {
+        "llm_calls": 4,
+        "llm_latency_ms": 4,
+        "input_tokens": 90,
+        "output_tokens": 25,
+        "total_tokens": 115,
+        "estimated_cost_usd": 0,
+    }
 
 
 async def test_agent_graph_handles_empty_message_locally() -> None:

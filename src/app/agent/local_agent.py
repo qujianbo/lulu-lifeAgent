@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from app.agent.graph import LifeAgentGraph
 from app.observability import LangSmithMonitor
+from app.observability.metrics import record_agent_result
 from app.services.agent_memory import AgentMemoryService
 from app.services.briefing import BriefingService
 from app.services.commodities import CommodityService
@@ -28,6 +29,8 @@ class LocalAgentResult:
     memory_trace: dict[str, Any] | None = None
     session_id: str = ""
     trace_id: str | None = None
+    llm_metrics: dict[str, int | float] | None = None
+    end_to_end_latency_ms: int = 0
 
 
 class LocalAgentService:
@@ -101,6 +104,8 @@ class LocalAgentService:
             memory_trace=(state.get("context") or {}).get("memory_trace"),
             session_id=resolved_session_id,
             trace_id=trace_id,
+            llm_metrics=state.get("llm_metrics") or {},
+            end_to_end_latency_ms=end_to_end_latency_ms,
         )
         if self.monitor is not None:
             self.monitor.record_deterministic_feedback(
@@ -108,4 +113,10 @@ class LocalAgentService:
                 result=result,
                 end_to_end_latency_ms=end_to_end_latency_ms,
             )
+        record_agent_result(
+            channel=channel,
+            result=result,
+            llm_provider="deepseek",
+            llm_model=getattr(self.graph.llm, "model", result.model),
+        )
         return result

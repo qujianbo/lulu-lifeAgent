@@ -75,6 +75,8 @@ class LocalChatResponse(BaseModel):
     memory_trace: dict[str, Any] | None = None
     session_id: str
     trace_id: str | None = None
+    llm_metrics: dict[str, int | float] = Field(default_factory=dict)
+    end_to_end_latency_ms: int = 0
 
 
 class LocalReminderItem(BaseModel):
@@ -289,6 +291,8 @@ async def local_chat(
         memory_trace=result.memory_trace,
         session_id=result.session_id,
         trace_id=result.trace_id,
+        llm_metrics=result.llm_metrics or {},
+        end_to_end_latency_ms=result.end_to_end_latency_ms,
     )
 
 
@@ -366,6 +370,8 @@ async def _chat_with_optional_database(
                         "source": "local_debug",
                         "session_id": result.session_id,
                         "trace_id": result.trace_id,
+                        "llm_metrics": result.llm_metrics,
+                        "end_to_end_latency_ms": result.end_to_end_latency_ms,
                     },
                 )
                 if conversation is not None:

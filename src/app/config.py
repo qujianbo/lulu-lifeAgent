@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str | None = None
     llm_timeout_seconds: int = 30
+    deepseek_input_cost_per_million_usd: float = Field(default=0, ge=0)
+    deepseek_output_cost_per_million_usd: float = Field(default=0, ge=0)
 
     wechat_app_id: str | None = None
     wechat_app_secret: str | None = None

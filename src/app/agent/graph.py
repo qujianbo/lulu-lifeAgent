@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, StateGraph
 
-from app.agent.planner import ToolCallingPlanner
+from app.agent.planner import ToolCallingPlanner, _merge_metrics
 from app.agent.schemas import ToolCallTrace
 from app.agent.state import AgentState
 from app.agent.tools.base import ToolContext
@@ -144,10 +144,14 @@ class LifeAgentGraph:
             tool_trace=state.get("tool_trace") or [],
         )
         planner_payload = decision.model_dump()
+        llm_metrics = _merge_metrics(
+            state.get("llm_metrics") or {}, decision.llm_metrics
+        )
         if decision.action == "final_answer" and state.get("tool_trace"):
             return AgentState(
                 planner_action="final_answer",
                 tool_trace=state.get("tool_trace") or [],
+                llm_metrics=llm_metrics,
             )
         return AgentState(
             intent=_intent_from_planner(planner_payload),
@@ -156,6 +160,7 @@ class LifeAgentGraph:
             planner=planner_payload,
             planner_action=decision.action,
             tool_trace=state.get("tool_trace") or [],
+            llm_metrics=llm_metrics,
         )
 
     def route_after_planner(self, state: AgentState) -> str:
@@ -262,6 +267,9 @@ class LifeAgentGraph:
                 model=response.model,
                 provider=response.provider,
                 latency_ms=response.latency_ms,
+                llm_metrics=_merge_metrics(
+                    state.get("llm_metrics") or {}, response.metrics()
+                ),
             ),
         )
 

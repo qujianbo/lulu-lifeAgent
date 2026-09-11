@@ -11,6 +11,7 @@ from app.api.health import router as health_router
 from app.api.local import router as local_router
 from app.config import get_settings
 from app.logging import configure_logging, new_request_id, request_id_var
+from app.observability.metrics import record_http_request
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -24,11 +25,22 @@ async def request_context_middleware(request: Request, call_next: Callable) -> R
     request_id = request.headers.get("x-request-id") or new_request_id()
     token = request_id_var.set(request_id)
     start = time.perf_counter()
+    status_code = 500
     try:
         response = await call_next(request)
+        status_code = response.status_code
         return response
     finally:
-        elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+        elapsed_seconds = time.perf_counter() - start
+        elapsed_ms = round(elapsed_seconds * 1000, 2)
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", request.url.path)
+        record_http_request(
+            method=request.method,
+            route=route_path,
+            status=status_code,
+            duration_seconds=elapsed_seconds,
+        )
         logger.info(
             "request_completed",
             extra={

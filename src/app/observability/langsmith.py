@@ -70,6 +70,7 @@ class LangSmithMonitor:
             if run is not None:
                 planner = result.get("planner") or {}
                 tool_trace = result.get("tool_trace") or []
+                llm_metrics = result.get("llm_metrics") or {}
                 run.add_metadata(
                     {
                         "intent": result.get("intent", "unknown"),
@@ -78,6 +79,8 @@ class LangSmithMonitor:
                         "tool_status": tool_trace[-1].get("status") if tool_trace else None,
                         "model": result.get("model", "none"),
                         "provider": result.get("provider", "local"),
+                        **llm_metrics,
+                        "tool_calls": len(tool_trace),
                     }
                 )
             trace_id = str(run.trace_id or run.id) if run is not None else ""
@@ -134,6 +137,8 @@ class LangSmithMonitor:
             "tool_success": tool_success,
             "tool_argument_valid": True if planner.get("action") == "call_tool" else None,
             "end_to_end_latency_ms": end_to_end_latency_ms,
+            **(result.llm_metrics or {}),
+            "tool_calls": len(tool_trace),
         }
         for key, score in scores.items():
             if score is not None:
@@ -186,12 +191,15 @@ def _trace_outputs(output: tuple[dict[str, Any], str]) -> dict[str, Any]:
     state, _trace_id = output
     planner = state.get("planner") or {}
     tool_trace = state.get("tool_trace") or []
+    llm_metrics = state.get("llm_metrics") or {}
     return {
         "final_response": state.get("final_response", ""),
         "intent": state.get("intent", "unknown"),
         "planner_action": planner.get("action"),
         "tool_name": planner.get("tool_name"),
         "tool_status": tool_trace[-1].get("status") if tool_trace else None,
+        "tool_calls": len(tool_trace),
+        **llm_metrics,
     }
 
 

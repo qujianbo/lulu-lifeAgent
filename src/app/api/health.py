@@ -1,10 +1,16 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.config import Settings, get_settings
 from app.dependencies import ping_database, ping_redis
 
 router = APIRouter(tags=["health"])
 SETTINGS_DEPENDENCY = Depends(get_settings)
+
+
+@router.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 def _check_status(value: bool | None) -> str:

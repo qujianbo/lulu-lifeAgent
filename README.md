@@ -55,6 +55,21 @@ LANGSMITH_JUDGE_SAMPLE_RATE=0.10
 用户满意度反馈通过 `trace_id` 关联到具体回复。关闭 LangSmith 时聊天行为保持不变，
 `trace_id` 返回 `null`。
 
+### Token、成本与 Prometheus 指标
+
+DeepSeek 响应中的 `prompt_tokens`、`completion_tokens` 和 `total_tokens` 会按一次
+Agent 请求累计（包含 Planner 和最终回答的多次调用），并输出到聊天接口的
+`llm_metrics`、LangSmith Trace 和消息日志。
+
+`GET /metrics` 输出 Prometheus 格式指标，包括 HTTP 请求量/延迟、Agent 延迟、
+LLM 调用量/token/估算费用和工具调用状态。费用估算默认为 0，需根据实际
+模型价格配置：
+
+```text
+DEEPSEEK_INPUT_COST_PER_MILLION_USD=0
+DEEPSEEK_OUTPUT_COST_PER_MILLION_USD=0
+```
+
 ## Docker Compose
 
 ```bash

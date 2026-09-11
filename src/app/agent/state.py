@@ -24,3 +24,4 @@ class AgentState(TypedDict, total=False):
     model: str
     provider: str
     latency_ms: int
+    llm_metrics: dict[str, int | float]

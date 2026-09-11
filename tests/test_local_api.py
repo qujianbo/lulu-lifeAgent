@@ -108,6 +108,8 @@ def test_local_chat_returns_agent_response(monkeypatch) -> None:
     assert payload["tool_trace"][0]["tool_name"] == "todo_create"
     assert payload["session_id"]
     assert payload["trace_id"] is None
+    assert payload["llm_metrics"]["llm_calls"] == 2
+    assert payload["end_to_end_latency_ms"] >= 0
 
 
 def test_local_chat_reuses_client_session_id(monkeypatch) -> None:

@@ -16,6 +16,8 @@ class DeepSeekProvider:
         self.base_url = settings.deepseek_base_url.rstrip("/")
         self.model = settings.deepseek_model or "deepseek-chat"
         self.timeout = settings.llm_timeout_seconds
+        self.input_cost_per_million_usd = settings.deepseek_input_cost_per_million_usd
+        self.output_cost_per_million_usd = settings.deepseek_output_cost_per_million_usd
 
     async def chat(
         self,
@@ -53,10 +55,32 @@ class DeepSeekProvider:
         except (KeyError, IndexError, TypeError) as exc:
             raise DeepSeekProviderError("DeepSeek response format is invalid") from exc
 
+        usage = data.get("usage") or {}
+        input_tokens = _non_negative_int(usage.get("prompt_tokens"))
+        output_tokens = _non_negative_int(usage.get("completion_tokens"))
+        total_tokens = _non_negative_int(usage.get("total_tokens"))
+        if total_tokens == 0:
+            total_tokens = input_tokens + output_tokens
+        estimated_cost_usd = (
+            input_tokens * self.input_cost_per_million_usd
+            + output_tokens * self.output_cost_per_million_usd
+        ) / 1_000_000
+
         return LLMResponse(
             content=str(content or ""),
             model=str(data.get("model") or self.model),
             provider="deepseek",
             latency_ms=latency_ms,
             finish_reason=choice.get("finish_reason"),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=estimated_cost_usd,
         )
+
+
+def _non_negative_int(value: object) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0

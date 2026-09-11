@@ -16,6 +16,14 @@ def test_home_page_is_served() -> None:
     assert "北京时间" in response.text
 
 
+def test_prometheus_metrics_are_exposed() -> None:
+    response = TestClient(app).get("/metrics")
+
+    assert response.status_code == 200
+    assert "life_agent_http_requests_total" in response.text
+    assert "life_agent_llm_tokens_total" in response.text
+
+
 def test_reminders_page_is_served() -> None:
     response = TestClient(app).get("/reminders")
 

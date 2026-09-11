@@ -15,6 +15,7 @@ class PlannerDecision(BaseModel):
     confidence: float = Field(ge=0, le=1)
     reason: str
     question: str | None = None
+    llm_metrics: dict[str, int | float] = Field(default_factory=dict, exclude=True)
 
     @model_validator(mode="after")
     def validate_action_fields(self) -> "PlannerDecision":

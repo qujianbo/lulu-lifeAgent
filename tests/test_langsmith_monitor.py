@@ -43,6 +43,13 @@ def test_deterministic_feedback_uses_expected_metric_keys(monkeypatch) -> None:
         content="已创建待办。",
         planner={"action": "call_tool", "tool_name": "todo_create"},
         tool_trace=[{"status": "success"}],
+        llm_metrics={
+            "llm_calls": 2,
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "total_tokens": 120,
+            "llm_latency_ms": 200,
+        },
     )
 
     monitor.record_deterministic_feedback(
@@ -57,6 +64,12 @@ def test_deterministic_feedback_uses_expected_metric_keys(monkeypatch) -> None:
         "tool_success": True,
         "tool_argument_valid": True,
         "end_to_end_latency_ms": 321,
+        "llm_calls": 2,
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "total_tokens": 120,
+        "llm_latency_ms": 200,
+        "tool_calls": 1,
     }
 
 

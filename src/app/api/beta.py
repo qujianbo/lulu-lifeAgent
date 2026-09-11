@@ -121,6 +121,8 @@ async def beta_chat(
         memory_trace=result.memory_trace,
         session_id=result.session_id,
         trace_id=result.trace_id,
+        llm_metrics=result.llm_metrics or {},
+        end_to_end_latency_ms=result.end_to_end_latency_ms,
     )
 
 
