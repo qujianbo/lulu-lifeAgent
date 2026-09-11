@@ -17,8 +17,9 @@ settings = get_settings()
 configure_logging(
     settings.log_level,
     log_dir=settings.log_dir,
+    service_name="web",
     max_bytes=settings.log_max_bytes,
-    backup_count=settings.log_backup_count,
+    retention=settings.log_retention,
 )
 logger = logging.getLogger(__name__)
 

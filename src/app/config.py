@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_dir: str = "logs"
     log_max_bytes: int = Field(default=20 * 1024 * 1024, ge=1024)
-    log_backup_count: int = Field(default=10, ge=1)
+    log_retention: str = "10 days"
     scheduler_poll_seconds: int = 30
 
     public_base_url: HttpUrl | None = None

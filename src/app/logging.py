@@ -1,58 +1,31 @@
 import logging
-import logging.handlers
-import queue
 import sys
-from atexit import register
 from contextvars import ContextVar
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from concurrent_log_handler import ConcurrentRotatingFileHandler
-from pythonjsonlogger.json import JsonFormatter as BaseJsonFormatter
+from loguru import logger as loguru_logger
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
-_listener: logging.handlers.QueueListener | None = None
 
 
-class JsonFormatter(BaseJsonFormatter):
-    def add_fields(
-        self,
-        log_record: dict[str, Any],
-        record: logging.LogRecord,
-        message_dict: dict[str, Any],
-    ) -> None:
-        super().add_fields(log_record, record, message_dict)
-        log_record["timestamp"] = datetime.now(UTC).isoformat()
-        log_record["level"] = record.levelname
-        log_record["logger"] = record.name
-        log_record["request_id"] = getattr(record, "_request_id", None)
-        for key, value in record.__dict__.items():
-            if key.startswith("_") and key[1:] not in log_record:
-                log_record[key[1:]] = value
+class InterceptHandler(logging.Handler):
+    """Route stdlib logging (including dependencies) through Loguru sinks."""
 
-
-class ExactLevelFilter(logging.Filter):
-    def __init__(self, level: int, *, include_higher: bool = False) -> None:
-        super().__init__()
-        self.level = level
-        self.include_higher = include_higher
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if self.include_higher:
-            return record.levelno >= self.level
-        return record.levelno == self.level
-
-
-class RequestContextFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        record._request_id = request_id_var.get()  # type: ignore[attr-defined]
-        return True
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level: str | int = loguru_logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        extra = {key[1:]: value for key, value in record.__dict__.items() if key.startswith("_")}
+        extra["request_id"] = request_id_var.get()
+        extra["stdlib_logger"] = record.name
+        loguru_logger.bind(**extra).opt(exception=record.exc_info).log(level, record.getMessage())
 
 
 class AppLogger:
-    """Small logging facade; writes are delegated to the configured async queue."""
+    """SLF4J-style facade retaining compatibility with existing stdlib callers."""
 
     @staticmethod
     def get(name: str) -> logging.Logger:
@@ -63,65 +36,49 @@ def configure_logging(
     level: str = "INFO",
     *,
     log_dir: str = "logs",
+    service_name: str = "web",
     max_bytes: int = 20 * 1024 * 1024,
-    backup_count: int = 10,
+    retention: str = "10 days",
 ) -> None:
-    global _listener
-    if _listener is not None:
-        _listener.stop()
-        _listener = None
-
-    root = logging.getLogger()
-    root.handlers.clear()
-    root.setLevel(level.upper())
-
-    formatter = JsonFormatter()
-    handlers: list[logging.Handler] = []
-
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setFormatter(formatter)
-    handlers.append(stdout_handler)
-
-    target_dir = Path(log_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for filename, file_level, include_higher in (
-        ("debug.log", logging.DEBUG, False),
-        ("info.log", logging.INFO, False),
-        ("warning.log", logging.WARNING, False),
-        ("error.log", logging.ERROR, True),
-    ):
-        file_handler = ConcurrentRotatingFileHandler(
-            target_dir / filename,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding="utf-8",
-        )
-        file_handler.setLevel(file_level)
-        file_handler.addFilter(
-            ExactLevelFilter(file_level, include_higher=include_higher)
-        )
-        file_handler.setFormatter(formatter)
-        handlers.append(file_handler)
-
-    log_queue: queue.Queue[logging.LogRecord] = queue.Queue()
-    queue_handler = logging.handlers.QueueHandler(log_queue)
-    queue_handler.addFilter(RequestContextFilter())
-    root.addHandler(queue_handler)
-    _listener = logging.handlers.QueueListener(
-        log_queue, *handlers, respect_handler_level=True
+    """Configure Loguru-owned asynchronous, serialized and rotating sinks."""
+    loguru_logger.remove()
+    logging.basicConfig(
+        handlers=[InterceptHandler()],
+        level=level.upper(),
+        force=True,
     )
-    _listener.start()
+    target_dir = Path(log_dir) / service_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    common: dict[str, Any] = {
+        "serialize": True,
+        "enqueue": True,
+        "backtrace": False,
+        "diagnose": False,
+        "catch": True,
+    }
+    loguru_logger.add(sys.stdout, level=level.upper(), **common)
+    for filename, sink_level, level_filter in (
+        ("debug.log", "DEBUG", lambda record: record["level"].name == "DEBUG"),
+        ("info.log", "INFO", lambda record: record["level"].name == "INFO"),
+        ("warning.log", "WARNING", lambda record: record["level"].name == "WARNING"),
+        ("error.log", "ERROR", lambda record: record["level"].no >= logging.ERROR),
+    ):
+        loguru_logger.add(
+            target_dir / filename,
+            level=sink_level,
+            filter=level_filter,
+            rotation=max_bytes,
+            retention=retention,
+            encoding="utf-8",
+            **common,
+        )
 
 
 def shutdown_logging() -> None:
-    global _listener
-    if _listener is not None:
-        _listener.stop()
-        _listener = None
+    loguru_logger.complete()
+    loguru_logger.remove()
 
 
 def new_request_id() -> str:
     return uuid4().hex
-
-
-register(shutdown_logging)

@@ -72,16 +72,16 @@ DEEPSEEK_OUTPUT_COST_PER_MILLION_USD=0
 
 ## 日志与 LLM 调用边界
 
-应用使用 Python `logging` 作为统一门面，通过 `QueueHandler/QueueListener` 异步
-写入 stdout 和 `LOG_DIR` 下的 `debug.log`、`info.log`、`warning.log`、
-`error.log`。JSON 序列化使用 `python-json-logger`，多进程安全轮转使用
-`concurrent-log-handler`。可配置：
+应用保留 Python `logging` 作为统一门面，并将所有标准库日志交给
+`Loguru` 管理。Loguru 通过 `enqueue=True` 提供非阻塞队列，并原生负责 JSON、
+rotation 和 retention。Web 与 Scheduler 分别写入 `LOG_DIR/web` 和
+`LOG_DIR/scheduler`，避免独立进程争用同一轮转文件。可配置：
 
 ```text
 LOG_LEVEL=INFO
 LOG_DIR=logs
 LOG_MAX_BYTES=20971520
-LOG_BACKUP_COUNT=10
+LOG_RETENTION=10 days
 ```
 
 DeepSeek `chat` 由 Around 装饰器统一包装，使用 `tenacity` 对超时、网络错误、

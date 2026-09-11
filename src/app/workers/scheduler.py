@@ -14,8 +14,9 @@ async def main() -> None:
     configure_logging(
         settings.log_level,
         log_dir=settings.log_dir,
+        service_name="scheduler",
         max_bytes=settings.log_max_bytes,
-        backup_count=settings.log_backup_count,
+        retention=settings.log_retention,
     )
     logger.info("scheduler_started")
     engine = create_engine(settings)
