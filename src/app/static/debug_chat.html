@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>生活管家 Agent 调试</title>
+    <style>
+      body { max-width: 860px; margin: 32px auto; padding: 0 16px; font-family: sans-serif; }
+      #messages { min-height: 280px; white-space: pre-wrap; padding: 16px; background: #f4f7f6; }
+      form { display: flex; gap: 8px; margin-top: 12px; }
+      input { flex: 1; padding: 12px; }
+      button { padding: 0 18px; }
+    </style>
+  </head>
+  <body>
+    <h1>生活管家 Agent</h1>
+    <div id="messages">输入消息以调试 /api/local/chat</div>
+    <form id="form"><input id="message" required /><button>发送</button></form>
+    <script>
+      document.querySelector("#form").onsubmit = async (event) => {
+        event.preventDefault();
+        const input = document.querySelector("#message");
+        const response = await fetch("/api/local/chat", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({message: input.value}),
+        });
+        const data = await response.json();
+        document.querySelector("#messages").textContent += `\n\n用户：${input.value}\n管家：${data.content || data.detail}`;
+        input.value = "";
+      };
+    </script>
+  </body>
+</html>

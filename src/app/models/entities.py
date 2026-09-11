@@ -220,6 +220,61 @@ class MessageLog(BigIntPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class Conversation(BigIntPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_user_id_last_message_at", "user_id", "last_message_at"),
+        Index("ix_conversations_user_id_status", "user_id", "status"),
+    )
+
+    conversation_uuid: Mapped[UUID] = mapped_column(
+        PostgresUUID(as_uuid=True), unique=True, nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(200))
+    summary: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ConversationMessage(BigIntPrimaryKeyMixin, Base):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        Index(
+            "ix_conversation_messages_conversation_id_created_at",
+            "conversation_id",
+            "created_at",
+        ),
+    )
+
+    conversation_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str | None] = mapped_column(String(64))
+    tool_name: Mapped[str | None] = mapped_column(String(128))
+    related_entities: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class InAppNotification(BigIntPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "in_app_notifications"
+    __table_args__ = (
+        Index("ix_in_app_notifications_user_id_created_at", "user_id", "created_at"),
+        Index("ix_in_app_notifications_user_id_read_at", "user_id", "read_at"),
+    )
+
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    notification_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text)
+    related_entity_type: Mapped[str | None] = mapped_column(String(64))
+    related_entity_id: Mapped[int | None] = mapped_column(BigInteger)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Reminder(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "reminders"
     __table_args__ = (
@@ -241,6 +296,7 @@ class Reminder(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_trigger_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     # Logical reference to message_logs.id for tracing the originating request.
     source_message_id: Mapped[int | None] = mapped_column(BigInteger)

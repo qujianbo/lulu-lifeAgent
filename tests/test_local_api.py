@@ -97,6 +97,23 @@ def test_local_chat_returns_agent_response(monkeypatch) -> None:
     assert payload["tool_result"]["tool"] == "todo_create"
     assert payload["tool_result"]["status"] == "failed"
     assert payload["tool_trace"][0]["tool_name"] == "todo_create"
+    assert payload["session_id"]
+    assert payload["trace_id"] is None
+
+
+def test_local_chat_reuses_client_session_id(monkeypatch) -> None:
+    monkeypatch.setattr(DeepSeekProvider, "chat", _fake_chat)
+    app.dependency_overrides[get_settings] = _settings_without_admin_token
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/local/chat",
+        json={"message": "你好", "session_id": "browser-session-1"},
+    )
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "browser-session-1"
 
 
 def test_local_api_requires_admin_token_when_configured(monkeypatch) -> None:

@@ -30,6 +30,16 @@ async def beta_chat_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "beta_chat.html", media_type="text/html")
 
 
+@router.get("/home", response_class=FileResponse)
+async def beta_home_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "beta_home.html", media_type="text/html")
+
+
+@router.get("/reminders", response_class=FileResponse)
+async def beta_reminders_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "beta_reminders.html", media_type="text/html")
+
+
 @router.get("/admin/beta-users", response_class=FileResponse)
 async def beta_admin_page() -> FileResponse:
     # Serve the minimal beta user admin page protected by ADMIN_TOKEN APIs.

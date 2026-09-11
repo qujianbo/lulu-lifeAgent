@@ -64,6 +64,46 @@ class ReminderRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    async def list_for_user(
+        self,
+        *,
+        user_id: int,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[Reminder]:
+        query: Select[tuple[Reminder]] = (
+            select(Reminder)
+            .where(Reminder.user_id == user_id, Reminder.deleted_at.is_(None))
+            .order_by(Reminder.next_trigger_at.is_(None), Reminder.next_trigger_at, Reminder.id)
+            .limit(limit)
+        )
+        if status:
+            query = query.where(Reminder.status == status)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def update_active(
+        self,
+        *,
+        reminder_id: int,
+        user_id: int,
+        title: str | None = None,
+        scheduled_at: datetime | None = None,
+        now: datetime | None = None,
+    ) -> Reminder | None:
+        now = now or datetime.now(UTC)
+        reminder = await self.get_active(reminder_id=reminder_id, user_id=user_id)
+        if reminder is None:
+            return None
+        if title is not None:
+            reminder.title = title[:200]
+        if scheduled_at is not None:
+            reminder.scheduled_at = scheduled_at
+            reminder.next_trigger_at = scheduled_at
+            reminder.last_triggered_at = None
+        reminder.updated_at = now
+        return reminder
+
     async def mark_completed(
         self,
         *,
@@ -108,6 +148,7 @@ class ReminderRepository:
         if reminder is None:
             return None
         reminder.status = "deleted"
+        reminder.cancelled_at = now
         reminder.deleted_at = now
         reminder.updated_at = now
         return reminder

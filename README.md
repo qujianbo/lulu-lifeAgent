@@ -37,6 +37,24 @@ curl -X POST http://127.0.0.1:8000/api/local/chat \
 
 本机没有 Docker 或数据库时，`/readyz` 里的 `database`、`redis` 可能显示 `failed`；这表示依赖未连通，不影响先调通 DeepSeek 和本地 Agent 接口。
 
+## LangSmith Agent 监控
+
+LangSmith 默认关闭。创建 LangSmith 项目并确认对话数据的上传与保留策略后，在 `.env` 配置：
+
+```text
+LANGSMITH_ENABLED=true
+LANGSMITH_API_KEY=你的 key
+LANGSMITH_PROJECT=life-agent-local
+LANGSMITH_AGENT_VERSION=本次发布版本或 Git commit
+LANGSMITH_USER_HASH_SALT=用于用户标识脱敏的随机强密钥
+LANGSMITH_JUDGE_SAMPLE_RATE=0.10
+```
+
+开启后，每次聊天会生成 `life_agent_chat` Trace。聊天响应包含 `session_id` 和
+`trace_id`；同一浏览器会话复用 `session_id`，并映射为 LangSmith 的 `thread_id`。
+用户满意度反馈通过 `trace_id` 关联到具体回复。关闭 LangSmith 时聊天行为保持不变，
+`trace_id` 返回 `null`。
+
 ## Docker Compose
 
 ```bash

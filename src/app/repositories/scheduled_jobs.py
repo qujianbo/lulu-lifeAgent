@@ -188,6 +188,29 @@ class ScheduledJobRepository:
         await self.session.flush()
         return job
 
+    async def reschedule_reminder_job(
+        self, *, reminder: Reminder, now: datetime | None = None
+    ) -> ScheduledJob:
+        now = now or datetime.now(UTC)
+        job = await self.get_pending_by_ref(
+            job_type="reminder_due", ref_type="reminder", ref_id=reminder.id
+        )
+        if job is None:
+            return await self.create_reminder_job(reminder=reminder, now=now)
+        job.next_run_at = reminder.next_trigger_at or reminder.scheduled_at or now
+        job.payload = {
+            "reminder_id": reminder.id,
+            "title": reminder.title,
+            "scheduled_at": reminder.scheduled_at.isoformat() if reminder.scheduled_at else None,
+        }
+        job.locked_at = None
+        job.locked_by = None
+        job.last_error = None
+        job.retry_count = 0
+        job.updated_at = now
+        await self.session.flush()
+        return job
+
     async def get_pending_by_ref(
         self,
         *,

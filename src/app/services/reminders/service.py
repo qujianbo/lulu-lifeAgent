@@ -1,5 +1,7 @@
 import re
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,6 +69,45 @@ class ReminderService:
     async def list_active(self, *, user_id: int, limit: int = 20) -> list[Reminder]:
         return await self.repository.list_active(user_id=user_id, limit=limit)
 
+    async def reschedule_from_text(
+        self, *, user_id: int, text: str, reminder_id: int | None = None
+    ) -> ReminderMutationResult:
+        reminder = (
+            await self.repository.get_active(reminder_id=reminder_id, user_id=user_id)
+            if reminder_id is not None
+            else await self._resolve_one_reminder(user_id=user_id, text=text)
+        )
+        if isinstance(reminder, list):
+            return ReminderMutationResult(
+                status="needs_confirmation",
+                message="找到多个可能的待办事项，需要指定要修改哪一个。",
+                candidates=reminder,
+                needs_confirmation=True,
+            )
+        if reminder is None:
+            return ReminderMutationResult(status="not_found", message="没有找到可修改的待办事项。")
+        parsed = parse_reminder_text(f"{text} {reminder.title}", timezone=DEFAULT_TIMEZONE)
+        scheduled_at = parsed.scheduled_at or _same_day_reschedule_time(
+            text=text, current=reminder.scheduled_at
+        )
+        if scheduled_at is None:
+            return ReminderMutationResult(
+                status="needs_confirmation",
+                message="我还需要知道新的提醒时间。",
+                reminder=reminder,
+                needs_confirmation=True,
+            )
+        updated = await self.repository.update_active(
+            reminder_id=reminder.id,
+            user_id=user_id,
+            scheduled_at=scheduled_at,
+        )
+        if updated is not None:
+            await self.scheduled_jobs.reschedule_reminder_job(reminder=updated)
+        return ReminderMutationResult(
+            status="updated", message="提醒时间已更新。", reminder=updated
+        )
+
     async def complete_from_text(self, *, user_id: int, text: str) -> ReminderMutationResult:
         reminder = await self._resolve_one_reminder(user_id=user_id, text=text)
         if isinstance(reminder, list):
@@ -124,6 +165,9 @@ class ReminderService:
             return await self.repository.get_active(reminder_id=reminder_id, user_id=user_id)
 
         reminders = await self.repository.list_active(user_id=user_id, limit=20)
+        ordinal = _extract_ordinal(text)
+        if ordinal is not None:
+            return reminders[ordinal - 1] if ordinal <= len(reminders) else None
         keyword = _extract_keyword(text)
         if keyword:
             reminders = [
@@ -150,3 +194,28 @@ def _extract_keyword(text: str) -> str:
         text,
     )
     return keyword.strip(" ，。,.")
+
+
+def _extract_ordinal(text: str) -> int | None:
+    match = re.search(r"第\s*(\d+)\s*条", text)
+    if match:
+        return int(match.group(1))
+    chinese = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5}
+    match = re.search(r"第\s*([一二两三四五])\s*条", text)
+    return chinese.get(match.group(1)) if match else None
+
+
+def _same_day_reschedule_time(*, text: str, current: datetime | None) -> datetime | None:
+    if current is None:
+        return None
+    match = re.search(r"([01]?\d|2[0-3])\s*[点:：时]", text)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    if any(word in text for word in ("下午", "晚上")) and hour < 12:
+        hour += 12
+    local = current.astimezone(ZoneInfo(DEFAULT_TIMEZONE))
+    candidate = local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if candidate <= datetime.now(ZoneInfo(DEFAULT_TIMEZONE)):
+        return None
+    return candidate

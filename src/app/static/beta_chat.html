@@ -37,6 +37,7 @@
         align-items: center;
         gap: 10px;
       }
+      .nav-link { color: #2f6f63; text-decoration: none; font-weight: 700; padding: 8px; }
       .user {
         color: #52606d;
         font-size: 14px;
@@ -136,6 +137,7 @@
         padding: 10px;
         font-size: 15px;
       }
+      #conversation-select { width: min(220px, 30vw); height: 36px; padding: 0 8px; }
       .feedback-text {
         min-height: 132px;
         margin-top: 12px;
@@ -177,6 +179,10 @@
     <header>
       <h1>生活管家 Agent</h1>
       <div class="header-actions">
+        <a class="nav-link" href="/home">首页</a>
+        <a class="nav-link" href="/reminders">提醒</a>
+        <select id="conversation-select" aria-label="历史对话"></select>
+        <button id="new-chat" class="ghost" type="button">新对话</button>
         <span id="user" class="user"></span>
         <button id="feedback-open" class="ghost" type="button">反馈</button>
         <button id="logout" class="ghost" type="button">退出</button>
@@ -198,6 +204,11 @@
             <option value="bug">异常问题</option>
             <option value="general">其他</option>
           </select>
+          <select id="feedback-satisfaction">
+            <option value="">不计入满意度</option>
+            <option value="true">满意</option>
+            <option value="false">不满意</option>
+          </select>
           <textarea id="feedback-content" class="feedback-text" maxlength="2000" required></textarea>
           <div id="feedback-status" class="status"></div>
         </div>
@@ -209,12 +220,15 @@
     </dialog>
     <script>
       const storageKey = "lulu-beta-chat-history";
+      const sessionStorageKey = "lulu-beta-chat-session-id";
       const messagesNode = document.querySelector("#messages");
       const composer = document.querySelector("#composer");
       const messageInput = document.querySelector("#message");
       const sendButton = document.querySelector("#send");
       const userNode = document.querySelector("#user");
       const logoutButton = document.querySelector("#logout");
+      const newChatButton = document.querySelector("#new-chat");
+      const conversationSelect = document.querySelector("#conversation-select");
       const feedbackDialog = document.querySelector("#feedback-dialog");
       const feedbackForm = document.querySelector("#feedback-form");
       const feedbackOpen = document.querySelector("#feedback-open");
@@ -222,6 +236,15 @@
       const feedbackStatus = document.querySelector("#feedback-status");
 
       let history = JSON.parse(localStorage.getItem(storageKey) || "[]");
+      let sessionId = localStorage.getItem(sessionStorageKey) || crypto.randomUUID();
+      let latestTraceId = [...history].reverse().find((item) => item.trace_id)?.trace_id || null;
+      localStorage.setItem(sessionStorageKey, sessionId);
+
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[char]);
+      }
 
       function saveHistory() {
         localStorage.setItem(storageKey, JSON.stringify(history.slice(-80)));
@@ -241,8 +264,8 @@
         messagesNode.scrollTop = messagesNode.scrollHeight;
       }
 
-      function append(role, content) {
-        history.push({ role, content, at: new Date().toISOString() });
+      function append(role, content, metadata = {}) {
+        history.push({ role, content, at: new Date().toISOString(), ...metadata });
         saveHistory();
         render();
       }
@@ -257,6 +280,28 @@
         userNode.textContent = me.display_name || me.username;
       }
 
+      async function loadServerHistory() {
+        if (!sessionId) return;
+        const response = await fetch(`/api/beta/conversations/${sessionId}/messages`, {
+          credentials: "include",
+        });
+        if (response.status === 404) return;
+        if (!response.ok) throw new Error("会话历史加载失败");
+        const data = await response.json();
+        history = data.items || [];
+        saveHistory();
+        render();
+      }
+
+      async function loadConversations() {
+        const response = await fetch("/api/beta/conversations", { credentials: "include" });
+        if (!response.ok) return;
+        const data = await response.json();
+        conversationSelect.innerHTML = (data.items || []).map((item) =>
+          `<option value="${item.id}" ${item.id === sessionId ? "selected" : ""}>${escapeHtml(item.title)}</option>`
+        ).join("");
+      }
+
       composer.addEventListener("submit", async (event) => {
         event.preventDefault();
         const text = messageInput.value.trim();
@@ -269,7 +314,7 @@
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: text }),
+            body: JSON.stringify({ message: text, session_id: sessionId }),
           });
           if (response.status === 401) {
             window.location.href = "/login";
@@ -277,7 +322,10 @@
           }
           const data = await response.json();
           if (!response.ok) throw new Error(data.detail || "请求失败");
-          append("assistant", data.content || "");
+          sessionId = data.session_id || sessionId;
+          latestTraceId = data.trace_id || null;
+          localStorage.setItem(sessionStorageKey, sessionId);
+          append("assistant", data.content || "", { trace_id: latestTraceId });
         } catch (error) {
           append("assistant", error.message || "请求失败");
         } finally {
@@ -289,6 +337,29 @@
       logoutButton.addEventListener("click", async () => {
         await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
         window.location.href = "/login";
+      });
+
+      newChatButton.addEventListener("click", async () => {
+        const response = await fetch("/api/beta/conversations", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        sessionId = data.id;
+        history = [];
+        latestTraceId = null;
+        localStorage.setItem(sessionStorageKey, sessionId);
+        saveHistory();
+        append("assistant", "新对话已开始，今天想先处理什么？");
+        await loadConversations();
+      });
+
+      conversationSelect.addEventListener("change", async () => {
+        sessionId = conversationSelect.value;
+        localStorage.setItem(sessionStorageKey, sessionId);
+        history = [];
+        await loadServerHistory();
       });
 
       feedbackOpen.addEventListener("click", () => {
@@ -303,6 +374,7 @@
         const content = document.querySelector("#feedback-content").value.trim();
         if (!content) return;
         feedbackStatus.textContent = "提交中";
+        const satisfaction = document.querySelector("#feedback-satisfaction").value;
         const response = await fetch("/api/beta/feedback", {
           method: "POST",
           credentials: "include",
@@ -312,6 +384,8 @@
             category: document.querySelector("#feedback-category").value,
             page_url: window.location.href,
             context: { recent_messages: history.slice(-6) },
+            trace_id: latestTraceId,
+            satisfied: satisfaction === "" ? null : satisfaction === "true",
           }),
         });
         if (!response.ok) {
@@ -328,9 +402,17 @@
       } else {
         render();
       }
-      requireLogin().catch(() => {
-        window.location.href = "/login";
-      });
+      requireLogin()
+        .then(() => Promise.all([loadServerHistory(), loadConversations()]))
+        .then(() => {
+          const homeMessage = sessionStorage.getItem("lulu-home-message");
+          if (homeMessage) {
+            sessionStorage.removeItem("lulu-home-message");
+            messageInput.value = homeMessage;
+            composer.requestSubmit();
+          }
+        })
+        .catch(() => { window.location.href = "/login"; });
     </script>
   </body>
 </html>

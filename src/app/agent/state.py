@@ -4,6 +4,7 @@ AgentIntent = str
 
 
 class AgentState(TypedDict, total=False):
+    session_id: str
     user_id: int | None
     public_user_id: int | None
     openid: str | None

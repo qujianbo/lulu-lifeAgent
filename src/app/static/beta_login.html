@@ -92,7 +92,7 @@
 
       async function checkExistingSession() {
         const response = await fetch("/api/auth/me", { credentials: "include" });
-        if (response.ok) window.location.href = "/chat";
+        if (response.ok) window.location.href = "/home";
       }
 
       form.addEventListener("submit", async (event) => {
@@ -111,7 +111,7 @@
             body: JSON.stringify(body),
           });
           if (!response.ok) throw new Error("用户名或密码不正确");
-          window.location.href = "/chat";
+          window.location.href = "/home";
         } catch (error) {
           statusNode.textContent = error.message || "登录失败";
         } finally {

@@ -36,6 +36,7 @@ class EmailNotificationService:
         email: str,
         enabled: bool,
         daily_briefing_time: str = "09:00",
+        daily_briefing_enabled: bool | None = None,
         reminder_enabled: bool = True,
         now: datetime | None = None,
     ) -> None:
@@ -58,7 +59,9 @@ class EmailNotificationService:
         await self.profiles.upsert(
             user_id=user_id,
             profile_key="email_daily_briefing_enabled",
-            profile_value=str(enabled).lower(),
+            profile_value=str(
+                enabled if daily_briefing_enabled is None else daily_briefing_enabled
+            ).lower(),
             value_type="boolean",
             source="admin",
             now=now,

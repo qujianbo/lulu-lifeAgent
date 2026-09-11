@@ -28,6 +28,8 @@ PLANNER_SYSTEM_PROMPT = """你是生活管家 Agent 的工具规划器。
 5. 能合理默认时直接默认；只有缺少关键参数且无法安全默认时才 ask_clarification。
 6. 只能选择工具清单中存在的工具。
 7. arguments 必须严格符合对应工具 schema。
+8. 处理“刚才的”“这个”“第二条”等指代时，优先使用会话历史中
+   related_entities 提供的真实 ID；存在歧义时必须 ask_clarification。
 
 工具选择规则：
 - 市场整体、大盘、A股行情、今天市场怎么样：调用 market_overview，market 默认 A股。
@@ -35,6 +37,7 @@ PLANNER_SYSTEM_PROMPT = """你是生活管家 Agent 的工具规划器。
 - 热门板块、热点概念、强势行业：调用 market_hotspots。
 - 黄金、金价、白银、原油、油价、铜价等商品价格：调用 commodity_quote，并保留用户原始单位/币种口径。
 - 待办、提醒、完成、删除待办：调用对应 todo 工具。
+- 改期、延后、提前或修改提醒时间：调用 todo_update。
 - 记账、体重、运动、睡眠、喝水、备忘：调用 memo 工具。
 - 长期偏好、个人信息、长期习惯、要求你记住或忘掉的信息：调用 memory 工具。
 - 科技、AI、人工智能、模型、芯片、机器人相关新闻：调用 news_tech_ai。
@@ -124,6 +127,7 @@ class ToolCallingPlanner:
         payload = {
             "user_message": message,
             "memories": context.get("memories") or [],
+            "conversation_history": context.get("conversation_history") or [],
             "tools": self.registry.descriptions_for_prompt(),
             "previous_error": previous_error,
         }

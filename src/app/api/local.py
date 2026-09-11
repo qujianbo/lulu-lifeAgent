@@ -22,7 +22,13 @@ from app.models import (
     User,
     UserProfile,
 )
-from app.repositories import MessageLogRepository, ScheduledJobRepository, UserRepository
+from app.observability import LangSmithMonitor
+from app.repositories import (
+    ConversationRepository,
+    MessageLogRepository,
+    ScheduledJobRepository,
+    UserRepository,
+)
 from app.services.agent_memory import AgentMemoryService
 from app.services.briefing import BriefingService
 from app.services.briefing.rss import fetch_rss_articles, split_rss_urls
@@ -53,6 +59,7 @@ class DeepSeekPingResponse(BaseModel):
 class LocalChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     user_id: int | None = Field(default=None, gt=0)
+    session_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class LocalChatResponse(BaseModel):
@@ -66,6 +73,8 @@ class LocalChatResponse(BaseModel):
     planner: dict[str, Any] | None = None
     tool_trace: list[dict[str, Any]] | None = None
     memory_trace: dict[str, Any] | None = None
+    session_id: str
+    trace_id: str | None = None
 
 
 class LocalReminderItem(BaseModel):
@@ -278,6 +287,8 @@ async def local_chat(
         planner=result.planner,
         tool_trace=result.tool_trace,
         memory_trace=result.memory_trace,
+        session_id=result.session_id,
+        trace_id=result.trace_id,
     )
 
 
@@ -286,10 +297,32 @@ async def _chat_with_optional_database(
     service: LocalAgentService,
     session: AsyncSession | None,
     payload: LocalChatRequest,
+    channel: str = "local",
 ):
     try:
         async with _session_transaction(session):
             user_id = await _resolve_debug_user_id(session=session, user_id=payload.user_id)
+            conversation = None
+            conversation_history: list[dict[str, Any]] = []
+            if session is not None and user_id is not None:
+                conversations = ConversationRepository(session)
+                conversation = await conversations.get_or_create(
+                    user_id=user_id,
+                    conversation_uuid=payload.session_id,
+                )
+                previous_messages = await conversations.list_messages(
+                    conversation_id=conversation.id,
+                    user_id=user_id,
+                    limit=20,
+                )
+                conversation_history = [
+                    {
+                        "role": item.role,
+                        "content": item.content,
+                        "related_entities": item.related_entities or [],
+                    }
+                    for item in previous_messages
+                ]
             effective_message = payload.message
             if session is not None and _is_confirmation_message(payload.message):
                 effective_message = await _resolve_confirmation_message(
@@ -307,7 +340,13 @@ async def _chat_with_optional_database(
                         "effective_message": effective_message,
                     },
                 )
-            result = await service.chat(effective_message, user_id=user_id)
+            result = await service.chat(
+                effective_message,
+                user_id=user_id,
+                session_id=payload.session_id,
+                channel=channel,
+                conversation_history=conversation_history,
+            )
             if session is not None:
                 tool_name, tool_status = _tool_log_fields(result.tool_result)
                 await MessageLogRepository(session).create(
@@ -327,8 +366,32 @@ async def _chat_with_optional_database(
                         "tool_trace": result.tool_trace,
                         "memory_trace": result.memory_trace,
                         "source": "local_debug",
+                        "session_id": result.session_id,
+                        "trace_id": result.trace_id,
                     },
                 )
+                if conversation is not None:
+                    conversations = ConversationRepository(session)
+                    await conversations.add_message(
+                        conversation=conversation,
+                        role="user",
+                        content=payload.message,
+                    )
+                    await conversations.add_message(
+                        conversation=conversation,
+                        role="assistant",
+                        content=result.content,
+                        intent=result.intent,
+                        tool_name=tool_name,
+                        related_entities=_related_entities(result.tool_result),
+                        extra_metadata={"trace_id": result.trace_id},
+                    )
+                    result = result.__class__(
+                        **{
+                            **result.__dict__,
+                            "session_id": str(conversation.conversation_uuid),
+                        }
+                    )
             return user_id, result
     except (DeepSeekProviderError, PlannerError):
         raise
@@ -337,8 +400,13 @@ async def _chat_with_optional_database(
             raise
         # Let local Docker-free environments keep validating Agent behavior without DB.
         logger.warning("local_chat_database_fallback", extra={"_error": str(exc)})
-        fallback_service = LocalAgentService(service.graph.llm)
-        result = await fallback_service.chat(payload.message, user_id=payload.user_id)
+        fallback_service = LocalAgentService(service.graph.llm, monitor=service.monitor)
+        result = await fallback_service.chat(
+            payload.message,
+            user_id=payload.user_id,
+            session_id=payload.session_id,
+            channel=channel,
+        )
         return payload.user_id, result
 
 
@@ -831,6 +899,21 @@ def _tool_log_fields(tool_result: dict[str, Any] | None) -> tuple[str | None, st
     return tool_result.get("tool"), tool_result.get("status")
 
 
+def _related_entities(tool_result: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not tool_result:
+        return []
+    entities: list[dict[str, Any]] = []
+    if tool_result.get("tool") == "todo_create" and tool_result.get("reminder_id"):
+        entities.append({"type": "reminder", "id": tool_result["reminder_id"]})
+    reminder = tool_result.get("reminder")
+    if isinstance(reminder, dict) and reminder.get("id"):
+        entities.append({"type": "reminder", "id": reminder["id"]})
+    for item in tool_result.get("items") or []:
+        if tool_result.get("tool", "").startswith("todo") and item.get("id"):
+            entities.append({"type": "reminder", "id": item["id"]})
+    return entities
+
+
 def _is_confirmation_message(message: str) -> bool:
     return message.strip() in {"确认", "对", "是", "是的", "好的", "没错", "可以"}
 
@@ -869,6 +952,7 @@ def build_local_agent_service(
             google_cx=settings.google_search_cx,
             timeout_seconds=settings.web_search_timeout_seconds,
         ),
+        monitor=LangSmithMonitor(settings),
     )
 
 

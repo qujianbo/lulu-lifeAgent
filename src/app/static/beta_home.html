@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>生活管家</title>
+    <style>
+      :root { color: #1f2933; background: #f4f7f6; font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; }
+      header { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: white; border-bottom: 1px solid #dbe5e1; position: sticky; top: 0; z-index: 2; }
+      h1 { margin: 0; font-size: 21px; }
+      nav { display: flex; gap: 8px; align-items: center; }
+      nav a, button { min-height: 44px; border-radius: 9px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font: inherit; }
+      nav a { color: #2f6f63; text-decoration: none; font-weight: 700; }
+      button { background: white; color: #243b35; border: 1px solid #c9d8d2; }
+      .primary { background: #2f6f63; color: white; border-color: #2f6f63; font-weight: 700; }
+      main { width: min(1080px, calc(100% - 32px)); margin: 28px auto 56px; }
+      .hero { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: end; margin-bottom: 22px; }
+      .hero h2 { font-size: clamp(25px, 4vw, 36px); margin: 0 0 6px; }
+      .muted { color: #63756f; }
+      .quick { display: flex; gap: 10px; background: white; border: 1px solid #dbe5e1; padding: 10px; border-radius: 14px; margin-bottom: 22px; }
+      .quick input { flex: 1; min-width: 0; border: 0; outline: 0; font-size: 16px; padding: 0 8px; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+      .card { background: white; border: 1px solid #dbe5e1; border-radius: 14px; padding: 20px; min-height: 190px; }
+      .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      .card h3 { margin: 0; font-size: 18px; }
+      .count { color: white; background: #cf6a4c; border-radius: 99px; min-width: 24px; height: 24px; padding: 0 7px; display: inline-flex; justify-content: center; align-items: center; font-size: 13px; }
+      .items { display: grid; gap: 9px; }
+      .item { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid #edf1ef; }
+      .item:first-child { border-top: 0; }
+      .item-main { flex: 1; min-width: 0; }
+      .item-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .time { color: #71817c; font-size: 13px; margin-top: 4px; }
+      .empty { color: #71817c; padding: 24px 0; text-align: center; }
+      dialog { width: min(520px, calc(100vw - 28px)); border: 0; border-radius: 14px; padding: 22px; box-shadow: 0 24px 80px #1f293344; }
+      dialog::backdrop { background: #1f293355; }
+      dialog h3 { margin-top: 0; }
+      .field { display: grid; gap: 6px; margin: 14px 0; }
+      .field input[type="email"], .field input[type="time"] { min-height: 44px; border: 1px solid #c9d8d2; border-radius: 8px; padding: 8px 10px; font: inherit; }
+      .check { display: flex; gap: 9px; align-items: center; margin: 12px 0; }
+      .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
+      #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #243b35; color: white; padding: 10px 16px; border-radius: 9px; display: none; }
+      @media (max-width: 700px) { header { padding: 0 12px; } nav a:first-child { display: none; } main { width: min(100% - 24px, 1080px); margin-top: 20px; } .hero { grid-template-columns: 1fr; } .grid { grid-template-columns: 1fr; } .quick { align-items: stretch; } .card { min-height: 150px; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>生活管家</h1>
+      <nav><a href="/home">首页</a><a href="/chat">对话</a><a href="/reminders">提醒</a><button id="settings-open">设置</button><button id="logout">退出</button></nav>
+    </header>
+    <main>
+      <section class="hero"><div><h2 id="greeting">今天过得怎么样？</h2><div id="date" class="muted"></div></div><a class="primary" style="text-decoration:none; min-height:44px; border-radius:9px; padding:0 16px; display:inline-flex; align-items:center" href="/chat">打开对话</a></section>
+      <form id="quick" class="quick"><input id="quick-input" maxlength="2000" placeholder="例如：明早 8 点提醒我带身份证" required /><button class="primary">发送</button></form>
+      <section class="grid">
+        <article class="card"><div class="card-head"><h3>今日待办</h3><span id="today-count" class="count">0</span></div><div id="today" class="items"></div></article>
+        <article class="card"><div class="card-head"><h3>近期提醒</h3><a href="/reminders" class="muted">管理</a></div><div id="upcoming" class="items"></div></article>
+        <article class="card"><div class="card-head"><h3>今日简报</h3></div><div id="briefing" class="items"></div></article>
+        <article class="card"><div class="card-head"><h3>最近生活记录</h3></div><div id="records" class="items"></div></article>
+        <article class="card" style="grid-column:1/-1"><div class="card-head"><h3>通知中心</h3><span id="notification-count" class="count">0</span></div><div id="notifications" class="items"></div></article>
+      </section>
+    </main>
+    <dialog id="settings">
+      <h3>通知设置</h3><div class="muted">所有时间均为北京时间</div>
+      <form id="settings-form">
+        <label class="field">邮箱<input id="email" type="email" required /></label>
+        <label class="check"><input id="email-enabled" type="checkbox" />启用邮件通知</label>
+        <label class="check"><input id="reminder-enabled" type="checkbox" />提醒到期时发送邮件</label>
+        <label class="check"><input id="briefing-enabled" type="checkbox" />发送每日简报</label>
+        <label class="field">简报时间<input id="briefing-time" type="time" value="09:00" /></label>
+        <div class="dialog-actions"><button id="test-email" type="button">测试发送</button><button id="settings-close" type="button">取消</button><button class="primary">保存</button></div>
+      </form>
+    </dialog>
+    <div id="toast"></div>
+    <script>
+      const $ = (selector) => document.querySelector(selector);
+      const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);
+      const formatTime = (value) => value ? new Intl.DateTimeFormat("zh-CN", {month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false,timeZone:"Asia/Shanghai"}).format(new Date(value)) : "未设置时间";
+      function toast(text) { $("#toast").textContent = text; $("#toast").style.display = "block"; setTimeout(() => $("#toast").style.display = "none", 2200); }
+      async function api(path, options = {}) { const response = await fetch(path, {credentials:"include", ...options, headers:{"Content-Type":"application/json", ...(options.headers || {})}}); if (response.status === 401) { location.href="/login"; throw new Error("未登录"); } const data = await response.json(); if (!response.ok) throw new Error(data.detail || "请求失败"); return data; }
+      function reminderHtml(item, complete = false) { return `<div class="item"><div class="item-main"><div class="item-title">${escapeHtml(item.title)}</div><div class="time">${escapeHtml(formatTime(item.scheduled_at))}</div></div>${complete ? `<button data-complete="${item.id}">完成</button>` : ""}</div>`; }
+      async function loadHome() { const data = await api("/api/beta/home"); $("#date").textContent = `${data.today} · 北京时间`; $("#today-count").textContent = data.today_reminders.length; $("#notification-count").textContent = data.unread_notifications; $("#today").innerHTML = data.today_reminders.length ? data.today_reminders.map((item) => reminderHtml(item, true)).join("") : '<div class="empty">今天暂无待办</div>'; $("#upcoming").innerHTML = data.upcoming_reminders.length ? data.upcoming_reminders.map((item) => reminderHtml(item)).join("") : '<div class="empty">近期没有提醒</div>'; $("#briefing").innerHTML = data.briefing.topics.length ? `<div class="item"><div>已关注：${data.briefing.topics.map(escapeHtml).join("、")}</div></div>` : '<div class="empty">可在对话中订阅感兴趣的简报</div>'; $("#records").innerHTML = data.recent_records.length ? data.recent_records.map((item) => `<div class="item"><div class="item-main"><div>${escapeHtml(item.content)}</div><div class="time">${escapeHtml(formatTime(item.recorded_at))}</div></div></div>`).join("") : '<div class="empty">还没有生活记录</div>'; document.querySelectorAll("[data-complete]").forEach((button) => button.onclick = async () => { await api(`/api/beta/reminders/${button.dataset.complete}`, {method:"PATCH", body:JSON.stringify({status:"completed"})}); toast("已完成"); loadHome(); }); }
+      async function loadNotifications() { const data = await api("/api/beta/notifications"); $("#notifications").innerHTML = data.items.length ? data.items.slice(0,10).map((item) => `<div class="item"><div class="item-main"><div class="item-title">${escapeHtml(item.title)}</div><div class="time">${escapeHtml(formatTime(item.created_at))}</div></div>${item.read ? "" : `<button data-read="${item.id}">已读</button>`}</div>`).join("") : '<div class="empty">暂无通知</div>'; document.querySelectorAll("[data-read]").forEach((button) => button.onclick = async () => { await api(`/api/beta/notifications/${button.dataset.read}/read`, {method:"POST"}); loadNotifications(); loadHome(); }); }
+      $("#quick").onsubmit = async (event) => { event.preventDefault(); const message=$("#quick-input").value.trim(); const conversation=await api("/api/beta/conversations", {method:"POST"}); localStorage.setItem("lulu-beta-chat-session-id", conversation.id); sessionStorage.setItem("lulu-home-message", message); location.href="/chat"; };
+      $("#settings-open").onclick = async () => { const data=await api("/api/beta/notification-settings"); $("#email").value=data.email || ""; $("#email-enabled").checked=data.email_enabled; $("#reminder-enabled").checked=data.email_reminder_enabled; $("#briefing-enabled").checked=data.email_daily_briefing_enabled; $("#briefing-time").value=data.email_daily_briefing_time || "09:00"; $("#settings").showModal(); };
+      $("#settings-close").onclick = () => $("#settings").close();
+      $("#settings-form").onsubmit = async (event) => { event.preventDefault(); await api("/api/beta/notification-settings", {method:"PUT",body:JSON.stringify({email:$("#email").value,email_enabled:$("#email-enabled").checked,email_reminder_enabled:$("#reminder-enabled").checked,email_daily_briefing_enabled:$("#briefing-enabled").checked,email_daily_briefing_time:$("#briefing-time").value})}); $("#settings").close(); toast("设置已保存"); };
+      $("#test-email").onclick = async () => { await api("/api/beta/notification-settings/test", {method:"POST"}); toast("测试邮件已进入发送队列"); };
+      $("#logout").onclick = async () => { await fetch("/api/auth/logout", {method:"POST",credentials:"include"}); location.href="/login"; };
+      Promise.all([loadHome(), loadNotifications()]).catch((error) => toast(error.message));
+    </script>
+  </body>
+</html>

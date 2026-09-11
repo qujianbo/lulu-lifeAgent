@@ -1,7 +1,9 @@
 """Repository layer."""
 
 from app.repositories.agent_memory_events import AgentMemoryEventRepository
+from app.repositories.conversations import ConversationRepository
 from app.repositories.email_send_logs import EmailSendLogRepository
+from app.repositories.in_app_notifications import InAppNotificationRepository
 from app.repositories.life_records import LifeRecordRepository
 from app.repositories.message_logs import MessageLogRepository
 from app.repositories.reminders import ReminderRepository
@@ -13,7 +15,9 @@ from app.repositories.users import UserRepository
 
 __all__ = [
     "AgentMemoryEventRepository",
+    "ConversationRepository",
     "LifeRecordRepository",
+    "InAppNotificationRepository",
     "EmailSendLogRepository",
     "MessageLogRepository",
     "ReminderRepository",

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>提醒管理 | 生活管家</title>
+    <style>
+      :root { color:#1f2933; background:#f4f7f6; font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif; }
+      * { box-sizing:border-box; } body { margin:0; }
+      header { height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; background:white; border-bottom:1px solid #dbe5e1; }
+      h1 { margin:0; font-size:21px; } nav { display:flex; gap:10px; } nav a { color:#2f6f63; text-decoration:none; font-weight:700; min-height:44px; display:flex; align-items:center; padding:0 8px; }
+      main { width:min(900px,calc(100% - 28px)); margin:28px auto; }
+      .head { display:flex; justify-content:space-between; align-items:end; margin-bottom:18px; } h2 { margin:0 0 5px; }
+      .muted { color:#6a7b76; } .list { display:grid; gap:12px; }
+      .item { background:white; border:1px solid #dbe5e1; border-radius:12px; padding:16px; display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; }
+      .title { font-weight:700; } .time { color:#6a7b76; margin-top:6px; font-size:14px; }
+      .actions { display:flex; gap:8px; } button { min-height:44px; border:1px solid #c9d8d2; background:white; border-radius:8px; padding:0 12px; cursor:pointer; } .primary { background:#2f6f63; color:white; border-color:#2f6f63; }
+      .empty { text-align:center; color:#6a7b76; padding:64px 16px; background:white; border-radius:12px; }
+      dialog { border:0; border-radius:12px; padding:22px; width:min(430px,calc(100% - 28px)); } dialog input { width:100%; min-height:44px; margin:12px 0; border:1px solid #c9d8d2; border-radius:8px; padding:8px; }
+      @media(max-width:620px) { header { padding:0 12px; } .item { grid-template-columns:1fr; } .actions button { flex:1; } }
+    </style>
+  </head>
+  <body>
+    <header><h1>提醒管理</h1><nav><a href="/home">首页</a><a href="/chat">对话</a></nav></header>
+    <main><div class="head"><div><h2>所有提醒</h2><div class="muted">按北京时间显示</div></div><a href="/chat" class="primary" style="text-decoration:none;min-height:44px;padding:0 14px;border-radius:8px;display:flex;align-items:center">创建提醒</a></div><div id="list" class="list"></div></main>
+    <dialog id="edit"><h3>修改提醒时间</h3><input id="edit-time" type="datetime-local" /><div class="actions"><button id="edit-close">取消</button><button id="edit-save" class="primary">保存</button></div></dialog>
+    <script>
+      const list=document.querySelector("#list"), dialog=document.querySelector("#edit"), editTime=document.querySelector("#edit-time"); let editingId=null;
+      const esc=(v)=>String(v??"").replace(/[&<>"']/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+      const format=(v)=>v?new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false,timeZone:"Asia/Shanghai"}).format(new Date(v)):"未设置时间";
+      async function api(path,options={}) { const r=await fetch(path,{credentials:"include",...options,headers:{"Content-Type":"application/json"}}); if(r.status===401){location.href="/login";throw new Error();} const d=await r.json();if(!r.ok)throw new Error(d.detail||"请求失败");return d; }
+      async function load(){const data=await api("/api/beta/reminders?status=active");list.innerHTML=data.items.length?data.items.map((item)=>`<div class="item"><div><div class="title">${esc(item.title)}</div><div class="time">${esc(format(item.scheduled_at))}</div></div><div class="actions"><button data-edit="${item.id}" data-time="${item.scheduled_at||""}">改期</button><button data-done="${item.id}">完成</button><button data-delete="${item.id}">取消</button></div></div>`).join(""):'<div class="empty">暂无进行中的提醒</div>';bind();}
+      function bind(){document.querySelectorAll("[data-done]").forEach((b)=>b.onclick=async()=>{await api(`/api/beta/reminders/${b.dataset.done}`,{method:"PATCH",body:JSON.stringify({status:"completed"})});load();});document.querySelectorAll("[data-delete]").forEach((b)=>b.onclick=async()=>{if(!confirm("确认取消这条提醒？"))return;await api(`/api/beta/reminders/${b.dataset.delete}`,{method:"DELETE"});load();});document.querySelectorAll("[data-edit]").forEach((b)=>b.onclick=()=>{editingId=b.dataset.edit;if(b.dataset.time){const d=new Date(b.dataset.time);const local=new Date(d.getTime()+8*3600000).toISOString().slice(0,16);editTime.value=local;}dialog.showModal();});}
+      document.querySelector("#edit-close").onclick=()=>dialog.close();document.querySelector("#edit-save").onclick=async()=>{if(!editTime.value)return;await api(`/api/beta/reminders/${editingId}`,{method:"PATCH",body:JSON.stringify({scheduled_at:new Date(`${editTime.value}:00+08:00`).toISOString()})});dialog.close();load();};load();
+    </script>
+  </body>
+</html>

@@ -6,7 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.models import ScheduledJob
-from app.repositories import ReminderRepository, ScheduledJobRepository, SubscriptionRepository
+from app.repositories import (
+    InAppNotificationRepository,
+    ReminderRepository,
+    ScheduledJobRepository,
+    SubscriptionRepository,
+)
 from app.services.notifications import EmailNotificationService, NotificationDispatcher
 
 logger = logging.getLogger(__name__)
@@ -33,6 +38,7 @@ class SchedulerService:
         self.settings = settings or get_settings()
         self.jobs = ScheduledJobRepository(session)
         self.reminders = ReminderRepository(session)
+        self.in_app_notifications = InAppNotificationRepository(session)
         self.subscriptions = SubscriptionRepository(session)
         self.email_notifications = EmailNotificationService(session, self.settings)
         self.dispatcher = NotificationDispatcher(session, self.settings)
@@ -87,6 +93,14 @@ class SchedulerService:
             return False
 
         await self.reminders.mark_triggered(reminder_id=reminder.id, now=now)
+        await self.in_app_notifications.create(
+            user_id=reminder.user_id,
+            notification_type="reminder_due",
+            title=reminder.title,
+            content=reminder.content,
+            related_entity_type="reminder",
+            related_entity_id=reminder.id,
+        )
         await self.email_notifications.create_reminder_email_job(reminder=reminder, now=now)
         logger.info(
             "reminder_due_processed",

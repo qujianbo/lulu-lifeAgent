@@ -53,6 +53,11 @@ class TodoQueryArgs(BaseModel):
     limit: int = Field(default=20, ge=1, le=50)
 
 
+class TodoUpdateArgs(BaseModel):
+    raw_text: str = Field(min_length=1, max_length=2000)
+    reminder_id: int | None = Field(default=None, gt=0)
+
+
 class MemoQueryArgs(BaseModel):
     raw_text: str = Field(default="", max_length=2000)
     record_type: str | None = None
@@ -131,6 +136,14 @@ def build_tool_registry(
             description="查询用户当前待办事项、提醒列表时使用。",
             args_model=TodoQueryArgs,
             handler=lambda args, ctx: _todo_query(reminder_service, args, ctx),
+        ),
+        AgentTool(
+            name="todo_update",
+            description=(
+                "修改或改期待办提醒。用户说改到某个时间、延后、提前，或修改刚才的提醒时使用。"
+            ),
+            args_model=TodoUpdateArgs,
+            handler=lambda args, ctx: _todo_update(reminder_service, args, ctx),
         ),
         AgentTool(
             name="todo_complete",
@@ -324,6 +337,27 @@ async def _todo_query(
         "items": _todo_items(reminders),
     }
     return ToolResult("todo_query", "success", "待办事项查询成功。", data)
+
+
+async def _todo_update(
+    service: ReminderService | None,
+    args: BaseModel,
+    ctx: ToolContext,
+) -> ToolResult:
+    if service is None or ctx.user_id is None:
+        return _missing_database("todo_update", "待办事项修改工具需要数据库连接。")
+    parsed = args if isinstance(args, TodoUpdateArgs) else TodoUpdateArgs.model_validate(args)
+    result = await service.reschedule_from_text(
+        user_id=ctx.user_id,
+        text=parsed.raw_text,
+        reminder_id=parsed.reminder_id,
+    )
+    return ToolResult(
+        "todo_update",
+        _tool_status(result.status),
+        result.message,
+        _todo_mutation_data("todo_update", result),
+    )
 
 
 async def _todo_complete(

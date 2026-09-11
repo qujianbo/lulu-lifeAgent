@@ -105,7 +105,11 @@ class LifeAgentGraph:
 
     async def context_loader(self, state: AgentState) -> AgentState:
         user_id = state.get("user_id")
-        context: dict[str, Any] = {"memory_loaded": False, "reminders_loaded": False}
+        context: dict[str, Any] = {
+            **(state.get("context") or {}),
+            "memory_loaded": False,
+            "reminders_loaded": False,
+        }
         if self.memory_service is not None and user_id is not None:
             memories = await self.memory_service.search(
                 user_id=user_id,
@@ -275,6 +279,7 @@ def _build_user_prompt(state: AgentState) -> str:
         f"用户问题：{message}\n"
         f"工具规划：{planner}\n"
         f"长期记忆：\n{memories}\n"
+        f"当前会话最近消息：\n{context.get('conversation_history') or []}\n"
         f"工具结果：{tool_result}\n\n"
         "请基于以上信息回答用户。\n"
         "- 如果工具结果为空或失败，说明无法确认，不要补编。\n"

@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     memory_search_top_k: int = 5
     memory_timeout_seconds: int = 8
 
+    langsmith_enabled: bool = False
+    langsmith_api_key: str | None = Field(default=None, repr=False)
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_project: str = "life-agent-local"
+    langsmith_agent_version: str | None = None
+    langsmith_user_hash_salt: str | None = Field(default=None, repr=False)
+    langsmith_judge_sample_rate: float = Field(default=0.1, ge=0, le=1)
+
     mem0_llm_provider: str = "deepseek"
     mem0_llm_model: str = "deepseek-chat"
     mem0_llm_base_url: str = "https://api.deepseek.com"
