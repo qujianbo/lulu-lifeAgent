@@ -70,6 +70,30 @@ DEEPSEEK_INPUT_COST_PER_MILLION_USD=0
 DEEPSEEK_OUTPUT_COST_PER_MILLION_USD=0
 ```
 
+## 日志与 LLM 调用边界
+
+应用使用 Python `logging` 作为统一门面，通过 `QueueHandler/QueueListener` 异步
+写入 stdout 和 `LOG_DIR` 下的 `debug.log`、`info.log`、`warning.log`、
+`error.log`。JSON 序列化使用 `python-json-logger`，多进程安全轮转使用
+`concurrent-log-handler`。可配置：
+
+```text
+LOG_LEVEL=INFO
+LOG_DIR=logs
+LOG_MAX_BYTES=20971520
+LOG_BACKUP_COUNT=10
+```
+
+DeepSeek `chat` 由 Around 装饰器统一包装，使用 `tenacity` 对超时、网络错误、
+HTTP 408/409/429 和 5xx 进行带随机抖动的指数退避。日志只记录模型、尝试次数、
+耗时、token 和错误分类，不记录 prompt 正文。
+
+```text
+LLM_MAX_ATTEMPTS=3
+LLM_RETRY_BASE_SECONDS=0.5
+LLM_RETRY_MAX_SECONDS=8
+```
+
 ## Docker Compose
 
 ```bash

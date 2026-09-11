@@ -11,7 +11,12 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(
+        settings.log_level,
+        log_dir=settings.log_dir,
+        max_bytes=settings.log_max_bytes,
+        backup_count=settings.log_backup_count,
+    )
     logger.info("scheduler_started")
     engine = create_engine(settings)
     session_factory = create_session_factory(engine)

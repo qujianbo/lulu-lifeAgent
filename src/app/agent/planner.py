@@ -115,8 +115,8 @@ class ToolCallingPlanner:
                 self._validate_decision(decision)
                 decision.llm_metrics = aggregate_metrics
                 return decision
-            except Exception as exc:
-                # Retry model, JSON, Pydantic and tool-schema failures.
+            except PlannerSchemaError as exc:
+                # Provider retries happen at the LLM boundary; only malformed plans retry here.
                 last_error = exc
         raise PlannerError("planner failed after retries") from last_error
 

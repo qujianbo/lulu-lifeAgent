@@ -3,11 +3,21 @@ import time
 import httpx
 
 from app.config import Settings
+from app.services.llm.around import around_llm_call
 from app.services.llm.types import LLMMessage, LLMResponse
 
 
 class DeepSeekProviderError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retryable = retryable
 
 
 class DeepSeekProvider:
@@ -16,9 +26,14 @@ class DeepSeekProvider:
         self.base_url = settings.deepseek_base_url.rstrip("/")
         self.model = settings.deepseek_model or "deepseek-chat"
         self.timeout = settings.llm_timeout_seconds
+        self.provider_name = "deepseek"
+        self.max_attempts = settings.llm_max_attempts
+        self.retry_base_seconds = settings.llm_retry_base_seconds
+        self.retry_max_seconds = settings.llm_retry_max_seconds
         self.input_cost_per_million_usd = settings.deepseek_input_cost_per_million_usd
         self.output_cost_per_million_usd = settings.deepseek_output_cost_per_million_usd
 
+    @around_llm_call
     async def chat(
         self,
         messages: list[LLMMessage],
@@ -45,7 +60,10 @@ class DeepSeekProvider:
         latency_ms = round((time.perf_counter() - start) * 1000)
         if not response.is_success:
             raise DeepSeekProviderError(
-                f"DeepSeek request failed with status {response.status_code}"
+                f"DeepSeek request failed with status {response.status_code}",
+                status_code=response.status_code,
+                retryable=response.status_code in {408, 409, 429}
+                or response.status_code >= 500,
             )
 
         data = response.json()

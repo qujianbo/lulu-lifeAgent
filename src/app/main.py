@@ -14,7 +14,12 @@ from app.logging import configure_logging, new_request_id, request_id_var
 from app.observability.metrics import record_http_request
 
 settings = get_settings()
-configure_logging(settings.log_level)
+configure_logging(
+    settings.log_level,
+    log_dir=settings.log_dir,
+    max_bytes=settings.log_max_bytes,
+    backup_count=settings.log_backup_count,
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name)
@@ -46,6 +51,7 @@ async def request_context_middleware(request: Request, call_next: Callable) -> R
             extra={
                 "_method": request.method,
                 "_path": request.url.path,
+                "_status_code": status_code,
                 "_elapsed_ms": elapsed_ms,
             },
         )

@@ -42,6 +42,11 @@ TOOL_CALLS = Counter(
     "Agent tool calls by tool and status.",
     ("tool", "status"),
 )
+LLM_ATTEMPTS = Counter(
+    "life_agent_llm_attempts_total",
+    "LLM provider attempts by provider, model and outcome.",
+    ("provider", "model", "outcome"),
+)
 
 
 def record_http_request(*, method: str, route: str, status: int, duration_seconds: float) -> None:
@@ -70,3 +75,7 @@ def record_agent_result(
             tool=trace.get("tool_name") or "unknown",
             status=trace.get("status") or "unknown",
         ).inc()
+
+
+def record_llm_attempt(*, provider: str, model: str, outcome: str) -> None:
+    LLM_ATTEMPTS.labels(provider=provider, model=model, outcome=outcome).inc()

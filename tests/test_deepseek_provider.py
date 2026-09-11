@@ -47,3 +47,42 @@ async def test_deepseek_provider_parses_token_usage(monkeypatch) -> None:
     assert response.total_tokens == 150
     assert response.metrics()["llm_calls"] == 1
     assert response.estimated_cost_usd == 0.00018
+
+
+async def test_deepseek_provider_retries_retryable_status(monkeypatch) -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, json={"error": "temporary"})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"total_tokens": 3},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(transport=transport)
+
+    monkeypatch.setattr(deepseek_module.httpx, "AsyncClient", MockAsyncClient)
+    provider = DeepSeekProvider(
+        Settings(
+            deepseek_api_key="test-key",
+            llm_max_attempts=2,
+            llm_retry_base_seconds=0,
+            llm_retry_max_seconds=0,
+            _env_file=None,
+        )
+    )
+
+    response = await provider.chat([LLMMessage(role="user", content="hello")])
+
+    assert response.content == "ok"
+    assert calls == 2

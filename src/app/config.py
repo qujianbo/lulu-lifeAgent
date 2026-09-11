@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "INFO"
+    log_dir: str = "logs"
+    log_max_bytes: int = Field(default=20 * 1024 * 1024, ge=1024)
+    log_backup_count: int = Field(default=10, ge=1)
     scheduler_poll_seconds: int = 30
 
     public_base_url: HttpUrl | None = None
@@ -25,6 +28,9 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str | None = None
     llm_timeout_seconds: int = 30
+    llm_max_attempts: int = Field(default=3, ge=1, le=10)
+    llm_retry_base_seconds: float = Field(default=0.5, ge=0)
+    llm_retry_max_seconds: float = Field(default=8.0, ge=0)
     deepseek_input_cost_per_million_usd: float = Field(default=0, ge=0)
     deepseek_output_cost_per_million_usd: float = Field(default=0, ge=0)
 
