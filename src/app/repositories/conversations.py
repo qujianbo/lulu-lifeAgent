@@ -88,6 +88,13 @@ class ConversationRepository:
         await self.session.flush()
         return item
 
+    async def set_pending_action(
+        self, *, conversation: Conversation, pending_action: dict | None
+    ) -> None:
+        conversation.pending_action = pending_action
+        conversation.updated_at = datetime.now(UTC)
+        await self.session.flush()
+
     async def list_messages(
         self, *, conversation_id: int, user_id: int, limit: int = 40
     ) -> list[ConversationMessage]:
@@ -128,4 +135,3 @@ class ConversationRepository:
             )
         )
         return result.scalar_one_or_none()
-

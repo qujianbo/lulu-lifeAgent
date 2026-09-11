@@ -16,8 +16,10 @@ class AgentState(TypedDict, total=False):
     slots: dict[str, Any]
     context: dict[str, Any]
     planner: dict[str, Any] | None
+    planner_action: str
     tool_result: dict[str, Any] | None
     tool_trace: list[dict[str, Any]]
+    tool_steps: int
     final_response: str
     model: str
     provider: str

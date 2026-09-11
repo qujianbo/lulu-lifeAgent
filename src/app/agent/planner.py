@@ -30,6 +30,11 @@ PLANNER_SYSTEM_PROMPT = """你是生活管家 Agent 的工具规划器。
 7. arguments 必须严格符合对应工具 schema。
 8. 处理“刚才的”“这个”“第二条”等指代时，优先使用会话历史中
    related_entities 提供的真实 ID；存在歧义时必须 ask_clarification。
+9. pending_action 表示上一轮正在等待用户补充或确认。当前消息如果是对它的
+   回答，必须合并已有参数与当前补充内容，继续原工具；不得重新执行无关旧消息。
+10. 用户明确转换话题时忽略 pending_action，按新目标规划。
+11. tool_result 非空时表示刚完成一次工具调用。如果已满足用户目标，返回
+   final_answer；只有用户目标确实需要下一步时才再返回 call_tool。
 
 工具选择规则：
 - 市场整体、大盘、A股行情、今天市场怎么样：调用 market_overview，market 默认 A股。
@@ -80,6 +85,8 @@ class ToolCallingPlanner:
         *,
         message: str,
         context: dict[str, Any],
+        tool_result: dict[str, Any] | None = None,
+        tool_trace: list[dict[str, Any]] | None = None,
         previous_error: str | None = None,
     ) -> PlannerDecision:
         last_error: Exception | None = None
@@ -87,6 +94,8 @@ class ToolCallingPlanner:
             prompt = self._build_prompt(
                 message=message,
                 context=context,
+                tool_result=tool_result,
+                tool_trace=tool_trace or [],
                 previous_error=previous_error or (str(last_error) if last_error else None),
             )
             try:
@@ -122,13 +131,46 @@ class ToolCallingPlanner:
         *,
         message: str,
         context: dict[str, Any],
+        tool_result: dict[str, Any] | None,
+        tool_trace: list[dict[str, Any]],
         previous_error: str | None,
     ) -> str:
         payload = {
             "user_message": message,
             "memories": context.get("memories") or [],
-            "conversation_history": context.get("conversation_history") or [],
+            "conversation_history": _bounded_history(
+                context.get("conversation_history") or []
+            ),
+            "pending_action": context.get("pending_action"),
+            "tool_result": tool_result,
+            "tool_trace": tool_trace,
             "tools": self.registry.descriptions_for_prompt(),
             "previous_error": previous_error,
         }
         return json.dumps(payload, ensure_ascii=False)
+
+
+def _bounded_history(
+    history: list[dict[str, Any]], *, character_budget: int = 12000
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    remaining = character_budget
+    for item in reversed(history):
+        content = str(item.get("content") or "")
+        if not content:
+            continue
+        if len(content) > remaining and selected:
+            break
+        content = content[-remaining:]
+        selected.append(
+            {
+                "role": item.get("role"),
+                "content": content,
+                "related_entities": item.get("related_entities") or [],
+            }
+        )
+        remaining -= len(content)
+        if remaining <= 0:
+            break
+    selected.reverse()
+    return selected

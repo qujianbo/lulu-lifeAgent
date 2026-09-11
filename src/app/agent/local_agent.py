@@ -64,6 +64,7 @@ class LocalAgentService:
         session_id: str | None = None,
         channel: str = "local",
         conversation_history: list[dict[str, Any]] | None = None,
+        pending_action: dict[str, Any] | None = None,
     ) -> LocalAgentResult:
         # Local endpoint now goes through the same LangGraph skeleton used by Agent flows.
         resolved_session_id = session_id or str(uuid4())
@@ -71,7 +72,10 @@ class LocalAgentService:
             "raw_message": user_message,
             "user_id": user_id,
             "session_id": resolved_session_id,
-            "context": {"conversation_history": conversation_history or []},
+            "context": {
+                "conversation_history": conversation_history or [],
+                "pending_action": pending_action,
+            },
         }
         started = perf_counter()
         if self.monitor is not None:

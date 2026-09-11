@@ -1,7 +1,8 @@
 import json
 from decimal import Decimal
 
-from app.agent.graph import LifeAgentGraph
+from app.agent.graph import LifeAgentGraph, _conversation_messages
+from app.agent.planner import _bounded_history
 from app.agent.tools import builtin
 from app.services.agent_memory import (
     MemoryDeleteResult,
@@ -30,6 +31,14 @@ class FakeLLM:
                 "reason": "测试规划",
                 "question": None,
             }
+            if payload.get("tool_result"):
+                return LLMResponse(
+                    content=json.dumps(decision, ensure_ascii=False),
+                    model="fake-model",
+                    provider="fake",
+                    latency_ms=1,
+                    finish_reason="stop",
+                )
             if "提醒" in user_message or "待办" in user_message:
                 decision.update(
                     action="call_tool",
@@ -463,9 +472,104 @@ async def test_agent_graph_routes_general_qa_without_tool() -> None:
     result = await graph.ainvoke({"raw_message": "怎么安排今天的工作？"})
 
     assert result["intent"] == "general_qa"
-    assert result["planner"]["action"] == "final_answer"
+    assert result["planner_action"] == "final_answer"
     assert result.get("tool_result") is None
     assert result["final_response"] == "图回复正常"
+
+
+def test_conversation_history_is_sent_as_bounded_chat_messages() -> None:
+    messages = _conversation_messages(
+        {
+            "context": {
+                "conversation_history": [
+                    {"role": "user", "content": "a" * 10},
+                    {"role": "assistant", "content": "b" * 10},
+                    {"role": "user", "content": "c" * 10},
+                ]
+            }
+        },
+        character_budget=15,
+    )
+
+    assert [(item.role, item.content) for item in messages] == [("user", "c" * 10)]
+
+
+def test_planner_history_keeps_entities_and_respects_budget() -> None:
+    history = [
+        {"role": "assistant", "content": "old" * 10, "related_entities": []},
+        {
+            "role": "assistant",
+            "content": "请选择提醒",
+            "related_entities": [{"type": "reminder", "id": 9}],
+        },
+    ]
+
+    bounded = _bounded_history(history, character_budget=6)
+
+    assert bounded == [
+        {
+            "role": "assistant",
+            "content": "请选择提醒",
+            "related_entities": [{"type": "reminder", "id": 9}],
+        }
+    ]
+
+
+async def test_agent_graph_can_chain_multiple_tools() -> None:
+    class ChainedToolLLM:
+        async def chat(self, messages, *args, **kwargs) -> LLMResponse:
+            if "工具规划器" not in messages[0].content:
+                return LLMResponse(
+                    content="市场和板块都已查询。",
+                    model="fake-model",
+                    provider="fake",
+                    latency_ms=1,
+                    finish_reason="stop",
+                )
+            payload = json.loads(messages[-1].content)
+            step = len(payload.get("tool_trace") or [])
+            if step == 0:
+                action, tool_name, arguments = (
+                    "call_tool",
+                    "market_quote",
+                    {"query": "上证指数", "market": "auto"},
+                )
+            elif step == 1:
+                action, tool_name, arguments = (
+                    "call_tool",
+                    "market_hotspots",
+                    {"market": "A股", "limit": 5},
+                )
+            else:
+                action, tool_name, arguments = "final_answer", None, {}
+            return LLMResponse(
+                content=json.dumps(
+                    {
+                        "action": action,
+                        "tool_name": tool_name,
+                        "arguments": arguments,
+                        "domain": "market",
+                        "confidence": 0.99,
+                        "reason": "多步查询测试",
+                        "question": None,
+                    },
+                    ensure_ascii=False,
+                ),
+                model="fake-model",
+                provider="fake",
+                latency_ms=1,
+                finish_reason="stop",
+            )
+
+    result = await LifeAgentGraph(
+        ChainedToolLLM(), market_service=FakeMarketService()
+    ).ainvoke({"raw_message": "查上证指数和热门板块", "user_id": 1})
+
+    assert [item["tool_name"] for item in result["tool_trace"]] == [
+        "market_quote",
+        "market_hotspots",
+    ]
+    assert result["planner_action"] == "final_answer"
 
 
 async def test_agent_graph_handles_empty_message_locally() -> None:

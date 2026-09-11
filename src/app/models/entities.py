@@ -233,6 +233,7 @@ class Conversation(BigIntPrimaryKeyMixin, TimestampMixin, Base):
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     title: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(Text)
+    pending_action: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

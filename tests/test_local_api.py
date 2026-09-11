@@ -3,8 +3,9 @@ import json
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from app.agent.local_agent import LocalAgentResult
 from app.api.beta_auth import _cookie_secure
-from app.api.local import _is_confirmation_message
+from app.api.local import _pending_action_from_result
 from app.config import Settings, get_settings
 from app.main import app
 from app.services.llm.deepseek import DeepSeekProvider
@@ -25,6 +26,14 @@ async def _fake_chat(self, messages, *args, **kwargs) -> LLMResponse:
             "reason": "测试规划",
             "question": None,
         }
+        if payload.get("tool_result"):
+            return LLMResponse(
+                content=json.dumps(decision, ensure_ascii=False),
+                model="deepseek-test",
+                provider="deepseek",
+                latency_ms=12,
+                finish_reason="stop",
+            )
         if "提醒" in user_message or "待办" in user_message:
             decision.update(
                 action="call_tool",
@@ -342,7 +351,41 @@ def test_local_briefing_preview_handles_missing_sources() -> None:
     assert response.json()["status"] == "no_sources"
 
 
-def test_confirmation_message_detection() -> None:
-    assert _is_confirmation_message("确认")
-    assert _is_confirmation_message("好的")
-    assert not _is_confirmation_message("确认查上证指数")
+def test_pending_action_is_scoped_from_tool_follow_up() -> None:
+    result = LocalAgentResult(
+        content="请确认要删除哪一条。",
+        model="none",
+        provider="local",
+        latency_ms=0,
+        intent="todo_delete",
+        planner={
+            "action": "call_tool",
+            "tool_name": "todo_delete",
+            "arguments": {"raw_text": "删除那条"},
+        },
+        tool_result={
+            "tool": "todo_delete",
+            "status": "needs_clarification",
+            "candidates": [{"id": 7, "title": "买牛奶"}],
+        },
+    )
+
+    pending = _pending_action_from_result(result, user_message="删除那条")
+
+    assert pending["tool_name"] == "todo_delete"
+    assert pending["result"]["candidates"][0]["id"] == 7
+    assert pending["original_message"] == "删除那条"
+
+
+def test_successful_result_clears_pending_action() -> None:
+    result = LocalAgentResult(
+        content="已完成。",
+        model="none",
+        provider="local",
+        latency_ms=0,
+        intent="todo_complete",
+        planner={"action": "call_tool", "tool_name": "todo_complete"},
+        tool_result={"tool": "todo_complete", "status": "success"},
+    )
+
+    assert _pending_action_from_result(result, user_message="确认") is None

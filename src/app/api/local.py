@@ -304,6 +304,7 @@ async def _chat_with_optional_database(
             user_id = await _resolve_debug_user_id(session=session, user_id=payload.user_id)
             conversation = None
             conversation_history: list[dict[str, Any]] = []
+            pending_action: dict[str, Any] | None = None
             if session is not None and user_id is not None:
                 conversations = ConversationRepository(session)
                 conversation = await conversations.get_or_create(
@@ -323,12 +324,8 @@ async def _chat_with_optional_database(
                     }
                     for item in previous_messages
                 ]
+                pending_action = conversation.pending_action
             effective_message = payload.message
-            if session is not None and _is_confirmation_message(payload.message):
-                effective_message = await _resolve_confirmation_message(
-                    session=session,
-                    user_id=user_id,
-                )
             if session is not None:
                 await MessageLogRepository(session).create(
                     direction="in",
@@ -346,6 +343,7 @@ async def _chat_with_optional_database(
                 session_id=payload.session_id,
                 channel=channel,
                 conversation_history=conversation_history,
+                pending_action=pending_action,
             )
             if session is not None:
                 tool_name, tool_status = _tool_log_fields(result.tool_result)
@@ -386,6 +384,12 @@ async def _chat_with_optional_database(
                         related_entities=_related_entities(result.tool_result),
                         extra_metadata={"trace_id": result.trace_id},
                     )
+                    await conversations.set_pending_action(
+                        conversation=conversation,
+                        pending_action=_pending_action_from_result(
+                            result, user_message=payload.message
+                        ),
+                    )
                     result = result.__class__(
                         **{
                             **result.__dict__,
@@ -396,7 +400,7 @@ async def _chat_with_optional_database(
     except (DeepSeekProviderError, PlannerError):
         raise
     except Exception as exc:
-        if session is None:
+        if session is None or channel != "local":
             raise
         # Let local Docker-free environments keep validating Agent behavior without DB.
         logger.warning("local_chat_database_fallback", extra={"_error": str(exc)})
@@ -914,19 +918,25 @@ def _related_entities(tool_result: dict[str, Any] | None) -> list[dict[str, Any]
     return entities
 
 
-def _is_confirmation_message(message: str) -> bool:
-    return message.strip() in {"确认", "对", "是", "是的", "好的", "没错", "可以"}
-
-
-async def _resolve_confirmation_message(*, session: AsyncSession, user_id: int | None) -> str:
-    logs = await MessageLogRepository(session).list_recent(user_id=user_id, limit=10)
-    for item in logs:
-        if item.direction != "in" or not item.content:
-            continue
-        if _is_confirmation_message(item.content):
-            continue
-        return item.content
-    return "确认"
+def _pending_action_from_result(result, *, user_message: str) -> dict[str, Any] | None:
+    planner = result.planner or {}
+    tool_result = result.tool_result or {}
+    if planner.get("action") == "ask_clarification":
+        return {
+            "kind": "clarification",
+            "domain": planner.get("domain"),
+            "question": planner.get("question"),
+            "original_message": user_message,
+        }
+    if tool_result.get("status") not in {"needs_clarification", "needs_confirmation"}:
+        return None
+    return {
+        "kind": "tool_follow_up",
+        "tool_name": planner.get("tool_name") or tool_result.get("tool"),
+        "arguments": planner.get("arguments") or {},
+        "result": tool_result,
+        "original_message": user_message,
+    }
 
 
 def build_local_agent_service(

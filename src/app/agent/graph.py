@@ -92,7 +92,14 @@ class LifeAgentGraph:
                 "compose": "response_composer",
             },
         )
-        graph.add_edge("tool_executor", "response_composer")
+        graph.add_conditional_edges(
+            "tool_executor",
+            self.route_after_tool,
+            {
+                "plan": "planner",
+                "compose": "response_composer",
+            },
+        )
         graph.add_edge("response_composer", END)
         return graph.compile()
 
@@ -133,21 +140,36 @@ class LifeAgentGraph:
         decision = await self.planner_service.plan(
             message=message,
             context=state.get("context") or {},
+            tool_result=state.get("tool_result"),
+            tool_trace=state.get("tool_trace") or [],
         )
         planner_payload = decision.model_dump()
+        if decision.action == "final_answer" and state.get("tool_trace"):
+            return AgentState(
+                planner_action="final_answer",
+                tool_trace=state.get("tool_trace") or [],
+            )
         return AgentState(
             intent=_intent_from_planner(planner_payload),
             intent_confidence=decision.confidence,
             intent_reason=decision.reason,
             planner=planner_payload,
-            tool_trace=[],
+            planner_action=decision.action,
+            tool_trace=state.get("tool_trace") or [],
         )
 
     def route_after_planner(self, state: AgentState) -> str:
         planner = state.get("planner") or {}
-        if planner.get("action") == "call_tool":
+        if state.get("planner_action", planner.get("action")) == "call_tool":
             return "tool"
         return "compose"
+
+    def route_after_tool(self, state: AgentState) -> str:
+        trace = state.get("tool_trace") or []
+        latest = trace[-1] if trace else {}
+        if latest.get("status") != "success" or state.get("tool_steps", 0) >= 3:
+            return "compose"
+        return "plan"
 
     async def tool_executor(self, state: AgentState) -> AgentState:
         planner = state.get("planner") or {}
@@ -172,13 +194,14 @@ class LifeAgentGraph:
         return AgentState(
             tool_result=result.data,
             tool_trace=[*(state.get("tool_trace") or []), trace.model_dump()],
+            tool_steps=state.get("tool_steps", 0) + 1,
         )
 
     def _tool_context(self, state: AgentState) -> ToolContext:
         context = state.get("context") or {}
         return ToolContext(
             user_id=state.get("user_id"),
-            session_id=None,
+            session_id=state.get("session_id"),
             raw_message=state.get("sanitized_message") or state.get("raw_message", ""),
             now=datetime.now(UTC),
             timezone="Asia/Shanghai",
@@ -225,6 +248,7 @@ class LifeAgentGraph:
         response = await self.llm.chat(
             [
                 LLMMessage(role="system", content=SYSTEM_PROMPT),
+                *_conversation_messages(state),
                 LLMMessage(role="user", content=_build_user_prompt(state)),
             ],
             temperature=0.2,
@@ -279,14 +303,41 @@ def _build_user_prompt(state: AgentState) -> str:
         f"用户问题：{message}\n"
         f"工具规划：{planner}\n"
         f"长期记忆：\n{memories}\n"
-        f"当前会话最近消息：\n{context.get('conversation_history') or []}\n"
+        f"当前待续任务：{context.get('pending_action') or '无'}\n"
         f"工具结果：{tool_result}\n\n"
+        f"本轮所有工具结果：{state.get('tool_trace') or []}\n\n"
         "请基于以上信息回答用户。\n"
         "- 如果工具结果为空或失败，说明无法确认，不要补编。\n"
         "- 如果工具结果包含来源链接，在回答末尾列出“来源：”。\n"
         "- 如果用户问题有明确单位、币种或时间范围，回答中必须保留这些口径。\n"
         "- 不要暴露内部字段名、JSON、planner、tool_result 等调试信息。"
     )
+
+
+def _conversation_messages(
+    state: AgentState, *, character_budget: int = 12000
+) -> list[LLMMessage]:
+    """Return recent turns as real chat messages within a bounded context budget."""
+    history = (state.get("context") or {}).get("conversation_history") or []
+    selected: list[LLMMessage] = []
+    remaining = character_budget
+    for item in reversed(history):
+        role = item.get("role")
+        content = str(item.get("content") or "")
+        if role not in {"user", "assistant"} or not content:
+            continue
+        if len(content) > remaining and selected:
+            break
+        if len(content) > remaining:
+            content = content[-remaining:]
+        if not content:
+            break
+        selected.append(LLMMessage(role=role, content=content))
+        remaining -= len(content)
+        if remaining <= 0:
+            break
+    selected.reverse()
+    return selected
 
 
 def _intent_from_planner(planner: dict[str, Any]) -> str:
@@ -298,6 +349,8 @@ def _intent_from_planner(planner: dict[str, Any]) -> str:
 
 
 def _direct_tool_response(state: AgentState) -> str | None:
+    if len(state.get("tool_trace") or []) > 1:
+        return None
     tool_result = state.get("tool_result") or {}
     if tool_result.get("tool") in {"news_tech_ai", "news_commodities"}:
         return _format_news_items(tool_result)
