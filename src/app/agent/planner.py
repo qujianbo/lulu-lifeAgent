@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 from pydantic import ValidationError
@@ -63,6 +64,8 @@ JSON schema：
 }
 """
 
+logger = logging.getLogger(__name__)
+
 
 class PlannerError(RuntimeError):
     pass
@@ -106,7 +109,9 @@ class ToolCallingPlanner:
                         LLMMessage(role="user", content=prompt),
                     ],
                     temperature=0,
-                    max_tokens=1200,
+                    # Reasoning models count hidden reasoning toward this limit. A small
+                    # budget can truncate the JSON before it reaches message.content.
+                    max_tokens=4096,
                     json_mode=True,
                 )
                 aggregate_metrics = _merge_metrics(
@@ -119,6 +124,15 @@ class ToolCallingPlanner:
             except PlannerSchemaError as exc:
                 # Provider retries happen at the LLM boundary; only malformed plans retry here.
                 last_error = exc
+                logger.warning(
+                    "planner_output_invalid",
+                    extra={
+                        "attempt": _attempt + 1,
+                        "finish_reason": response.finish_reason,
+                        "content_length": len(response.content),
+                        "error": str(exc),
+                    },
+                )
         raise PlannerError("planner failed after retries") from last_error
 
     def _validate_decision(self, decision: PlannerDecision) -> None:
