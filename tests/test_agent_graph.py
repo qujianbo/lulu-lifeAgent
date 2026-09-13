@@ -147,6 +147,28 @@ class FakeLLM:
         )
 
 
+class RepeatToolLLM(FakeLLM):
+    async def chat(self, messages, *args, **kwargs) -> LLMResponse:
+        if "工具规划器" in messages[0].content:
+            decision = {
+                "action": "call_tool",
+                "tool_name": "market_quote",
+                "arguments": {"query": "上证指数", "market": "auto"},
+                "domain": "market",
+                "confidence": 0.99,
+                "reason": "模拟模型重复调用同一工具",
+                "question": None,
+            }
+            return LLMResponse(
+                content=json.dumps(decision, ensure_ascii=False),
+                model="fake-model",
+                provider="fake",
+                latency_ms=1,
+                finish_reason="stop",
+            )
+        return await super().chat(messages, *args, **kwargs)
+
+
 class FakeMemoryService:
     def __init__(self) -> None:
         self.search_queries: list[str] = []
@@ -598,6 +620,14 @@ async def test_agent_graph_can_chain_multiple_tools() -> None:
         "total_tokens": 115,
         "estimated_cost_usd": 0,
     }
+
+
+async def test_agent_graph_does_not_repeat_identical_tool_call() -> None:
+    graph = LifeAgentGraph(RepeatToolLLM(), market_service=FakeMarketService())
+
+    result = await graph.ainvoke({"raw_message": "查一下上证指数", "user_id": 1})
+
+    assert [item["tool_name"] for item in result["tool_trace"]] == ["market_quote"]
 
 
 async def test_agent_graph_handles_empty_message_locally() -> None:

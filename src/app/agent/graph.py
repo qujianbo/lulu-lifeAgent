@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
@@ -166,6 +167,13 @@ class LifeAgentGraph:
     def route_after_planner(self, state: AgentState) -> str:
         planner = state.get("planner") or {}
         if state.get("planner_action", planner.get("action")) == "call_tool":
+            signature = (planner.get("tool_name"), planner.get("arguments") or {})
+            previous_signatures = {
+                (item.get("tool_name"), _freeze_mapping(item.get("arguments") or {}))
+                for item in state.get("tool_trace") or []
+            }
+            if (signature[0], _freeze_mapping(signature[1])) in previous_signatures:
+                return "compose"
             return "tool"
         return "compose"
 
@@ -346,6 +354,11 @@ def _conversation_messages(
             break
     selected.reverse()
     return selected
+
+
+def _freeze_mapping(value: Any) -> str:
+    """Create a stable comparison key for JSON-compatible tool arguments."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def _intent_from_planner(planner: dict[str, Any]) -> str:
