@@ -71,6 +71,10 @@ git ls-files -z --cached --modified --others --exclude-standard \
 echo "==> Cleaning platform metadata files"
 run_remote "find . -name '._*' -o -name '.DS_Store' | xargs -r rm -f"
 
+echo "==> Preparing writable log directories"
+# The application image runs as appuser (uid 1000).
+run_remote "mkdir -p logs/web logs/scheduler && chown -R 1000:1000 logs"
+
 if [[ "$BUILD" -eq 1 ]]; then
   echo "==> Rebuilding app images"
   run_remote "docker compose build migrate app scheduler"

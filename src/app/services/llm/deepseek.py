@@ -40,6 +40,7 @@ class DeepSeekProvider:
         *,
         temperature: float = 0.2,
         max_tokens: int = 1024,
+        json_mode: bool = False,
     ) -> LLMResponse:
         # Keep provider code isolated so later model fallback can be added cleanly.
         if not self.api_key:
@@ -51,6 +52,8 @@ class DeepSeekProvider:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",

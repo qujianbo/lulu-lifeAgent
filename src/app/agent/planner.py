@@ -106,7 +106,8 @@ class ToolCallingPlanner:
                         LLMMessage(role="user", content=prompt),
                     ],
                     temperature=0,
-                    max_tokens=600,
+                    max_tokens=1200,
+                    json_mode=True,
                 )
                 aggregate_metrics = _merge_metrics(
                     aggregate_metrics, response.metrics()
